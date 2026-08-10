@@ -7,22 +7,23 @@ primary-language = "python"
 
 [ci]
 versions = ["3.14"]
-# The dedicated CI integration job stays off for now. See melete#23.
+# Integration tests run; the dedicated CI integration job stays off.
 #
-# This does not remove or skip any test. Spec section 14 specifies two tests
-# that invoke the LilyPond binary - the render integration test and the CLI
-# end-to-end smoke test. The render test already exists and, now that the
-# container carries the binary, runs and passes in the ordinary pytest run;
-# the smoke test is not written yet.
+# Spec section 14's two binary-dependent tests - the render integration test
+# and the CLI end-to-end smoke test - both exist, are marked
+# `@pytest.mark.integration`, and are never deselected, so they execute in
+# the ordinary pytest run and are already covered in CI by
+# `test / unit / 3.14`, against the LilyPond binary the container carries
+# (see [container].system-packages below).
 #
-# What this flag governs is only CI's dedicated integration job: setting it
-# true adds `test / integration / 3.14` to the branch ruleset's required
-# checks. Both former preconditions for that are now met - the status-context
-# is emitted (vergil-tooling#2720) and the container carries the binary
-# (vergil-tooling#2718, via the [container].system-packages declaration
-# below). Turning it on is nonetheless deferred to the integration-test
-# follow-on that writes the remaining smoke test, so the job lands with the
-# full suite it claims rather than half of one.
+# Setting this true would add `test / integration / 3.14` to the branch
+# ruleset's required checks, but the shared ci-test.yml@v2.1 emits only
+# `unit`. Requiring a context no job emits blocks every PR while all checks
+# are green - the unmergeable state melete#23 fixed by setting this false.
+# The container precondition is met (vergil-tooling#2718) and #2720 added a
+# parity guard that now fails loudly on the mismatch, but the emitting job
+# is still owed by the open vergil-tooling#2721. Flip this only once that
+# lands.
 integration-tests = false
 
 [container]
