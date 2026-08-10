@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from melete.families import arpeggios, chromatic, scales
+from melete.families import arpeggios, chromatic, intervals, scales
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -35,12 +35,13 @@ type Params = Mapping[str, object]
 #: The family contract. Every entry in `REGISTRY` has this shape.
 type Generate = Callable[[InstrumentProfile, Params], Score]
 
-#: Family identifier -> the pure function that realizes it. Task B8 adds
-#: `intervals`.
+#: Family identifier -> the pure function that realizes it. All four of §7's
+#: families are here; `vocabulary.AXES["family"]` enumerates the same keys.
 REGISTRY: dict[str, Generate] = {
     "chromatic": chromatic.generate,
     "scales": scales.generate,
     "arpeggios": arpeggios.generate,
+    "intervals": intervals.generate,
 }
 
 __all__ = ["REGISTRY", "Generate", "Params"]
