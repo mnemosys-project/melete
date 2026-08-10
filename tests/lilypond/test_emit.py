@@ -577,9 +577,14 @@ def test_a_root_that_is_not_a_pitch_integer_is_a_hard_error() -> None:
         _cover_of(sample_score(params={"root": "G"}))
 
 
-def test_a_root_outside_the_octave_is_a_hard_error() -> None:
-    with pytest.raises(ValueError, match="12"):
-        _cover_of(sample_score(params={"root": 12}))
+def test_an_absolute_root_is_named_by_its_pitch_class() -> None:
+    # `selection._realized` places the pool's pitch class on the instrument
+    # before the family sees it, so what reaches a Score — and this page — is
+    # an absolute pitch. A1 and A4 are both "A" on the cover; the octave is on
+    # the staff, where it is a position rather than a name.
+    score = sample_score(params={"root": 33, "scale_type": "dorian"}, key=theory.Key(9, "dorian"))
+    out = _cover_of(score)
+    assert "1. A Dorian" in out
 
 
 def test_a_book_with_no_exercises_is_a_hard_error() -> None:

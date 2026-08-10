@@ -64,20 +64,27 @@ class RenderError(RuntimeError):
     """
 
 
-def render(ly_text: str, out_dir: Path) -> Path:
+def render(ly_text: str, out_dir: Path, *, stem: str = STEM) -> Path:
     """Engrave `ly_text` into `out_dir` and return the path to the PDF.
 
     Raises `RenderError` if the binary is missing, if LilyPond fails, or if it
     reports success without leaving a PDF behind. The `.ly` is kept in every
     one of those cases except the first, where nothing was written at all.
+
+    `stem` names the pair of files one render produces — `<stem>.ly` and
+    `<stem>.pdf`. It is a parameter rather than the constant it started as
+    because §12 keeps the source *per exercise and for the book* in one `src/`
+    directory: a fixed name would have `--split` overwrite each source with the
+    next, and the kept-on-failure `.ly` (§13) would name whichever render
+    happened to fail last rather than the one being inspected.
     """
     binary = _resolve_binary()
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    ly_path = out_dir / LY_NAME
+    ly_path = out_dir / f"{stem}.ly"
     ly_path.write_text(ly_text, encoding="utf-8")
 
-    command = [binary, "--pdf", "-o", str(out_dir / STEM), str(ly_path)]
+    command = [binary, "--pdf", "-o", str(out_dir / stem), str(ly_path)]
     # S603/S607: `binary` is an absolute path resolved by shutil.which, and the
     # remaining arguments are paths this module derives from the caller's
     # directory. No shell is involved and no string is interpolated into a
@@ -92,9 +99,9 @@ def render(ly_text: str, out_dir: Path) -> Path:
     if completed.returncode != 0:
         raise RenderError(_failed(command, ly_path, completed))
 
-    pdf_path = out_dir / PDF_NAME
+    pdf_path = out_dir / f"{stem}.pdf"
     if not pdf_path.exists():
-        raise RenderError(_no_output(out_dir, ly_path, completed))
+        raise RenderError(_no_output(pdf_path, ly_path, completed))
     return pdf_path
 
 
@@ -116,9 +123,9 @@ def _failed(command: list[str], ly_path: Path, completed: subprocess.CompletedPr
     )
 
 
-def _no_output(out_dir: Path, ly_path: Path, completed: subprocess.CompletedProcess[str]) -> str:
+def _no_output(pdf_path: Path, ly_path: Path, completed: subprocess.CompletedProcess[str]) -> str:
     return (
-        f"LilyPond exited 0 but wrote no {PDF_NAME} into {out_dir}.\n\n"
+        f"LilyPond exited 0 but wrote no {pdf_path.name} into {pdf_path.parent}.\n\n"
         f"The source was kept at {ly_path}. A source that redirects its own\n"
         f"output — \\bookOutputName, for instance — will do this; so will a\n"
         f"LilyPond built without PDF support.\n"

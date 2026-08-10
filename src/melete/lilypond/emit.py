@@ -77,7 +77,7 @@ from melete import theory, vocabulary
 # to the emitter that branches on it, and two tuples that must agree are the
 # drift decision #19 exists to prevent.
 from melete.config import STAVES
-from melete.score import TONICS, Note, Tuplet
+from melete.score import Note, Tuplet
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -480,17 +480,19 @@ def _pitch_class_name(value: object, key: theory.Key | None) -> str:
     from one function is what makes it unreachable rather than merely unlikely.
 
     A key of `None` spells by direction, exactly as the staff does for the same
-    score. Neither name is a fallback: an unusable `root` raises (§13).
+    score. A non-integer `root` raises (§13): there is no fallback name.
+
+    **The root arrives as an absolute pitch, not as a pitch class.** §7's axis
+    is a pitch class and the pool is written in pitch classes, but
+    `selection._realized` places it on the instrument before the family — and
+    therefore the log and this page — ever see it, because a family needs the
+    pitch the strings can actually reach. Only the letter is printed, and a
+    letter is a property of the pitch class, so A1 and A4 name the same "A"
+    here; the octave is on the staff, where it belongs.
     """
     if not isinstance(value, int):
-        msg = f"cover entry: root must be a pitch-class integer, got {value!r}"
+        msg = f"cover entry: root must be a pitch integer, got {value!r}"
         raise TypeError(msg)
-    if value not in TONICS:
-        msg = (
-            f"cover entry: root {value} is outside 0-11. Roots are pitch "
-            f"classes, not absolute pitches."
-        )
-        raise ValueError(msg)
 
     spelled = theory.spell(key, [value])[0]
     return spelled.letter + "#" * spelled.alteration + "b" * -spelled.alteration
