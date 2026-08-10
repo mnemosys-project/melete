@@ -42,7 +42,11 @@ root position instead would engrave the wrong chord convincingly (§13).
 
 **`traversal` decides how the chord is spread over the strings.**
 `positional` keeps the hand in one place, minimizing total fret travel across
-the whole cycle (`_shared.boxed`, shared with `scales`). `across_strings` is
+the whole cycle and **raising when the chord will not fit under one hand**
+(`_shared.boxed`, shared with `scales`; issue #57) — two octaves over four
+strings puts the upper octave up the neck, which is a shift and not a position,
+and a label a player cannot trust is worse than a draw §9 has to replace.
+`across_strings` is
 the arpeggio's own layout: each successive tone moves to the next string in
 `string_set` **where the string set allows it**, which is the sweep-picked
 shape a player actually uses. A tone the next string cannot reach — a fifth

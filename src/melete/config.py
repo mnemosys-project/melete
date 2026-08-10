@@ -35,7 +35,7 @@ that knows nothing about how its parameters were configured.
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 from itertools import permutations as _orderings
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -87,6 +87,20 @@ DEFAULT_COUNT = 5
 DEFAULT_HORIZON = 14
 DEFAULT_MAX_NOTES = 96
 
+#: How far one exercise may make the fretting hand travel, lowest fretted note
+#: to highest (§9's validity gate; issue #57).
+#:
+#: **One octave of neck.** Shifting is legitimate — `chromatic` with
+#: `shift = fret_per_cycle` is *supposed* to climb, and §10's example pool tops
+#: it out at nine frets — so this bound is deliberately looser than a position.
+#: What it refuses is an exercise that covers more of the neck than the neck's
+#: own repeating unit: every shape recurs an octave higher, so a span past
+#: twelve frets contains a repetition of itself, and on a 34-inch scale that is
+#: most of the reachable board in a fourteen-note exercise. The sheet that
+#: raised issue #57 held spans of 15 and 17 frets, which nothing had decided
+#: were acceptable.
+DEFAULT_MAX_FRET_SPAN = 12
+
 #: `[pool.rhythm]` is a section of `[pool]` but not a family: rhythm is a
 #: cross-cutting modifier (§8, decision #3), so it carries axes but no tempo.
 RHYTHM = "rhythm"
@@ -135,11 +149,18 @@ class SessionConfig:
     `shape` is the declared mix of families (§9). Left unset it is `None`
     rather than an empty mapping, because "no shape" means *weight the
     families instead* and an empty mapping would read as "no exercises".
+
+    `max_notes` and `max_fret_span` are the two bounds §9's gate applies beyond
+    the instrument profile — how long an exercise is, and how far it makes the
+    hand travel. Both are here rather than in `[pool.*]` because they bound the
+    *session*, and both are checked through the one gate, because a cycle that
+    is too long and a reach no hand has are the same kind of failure.
     """
 
     count: int
     horizon: int
     max_notes: int
+    max_fret_span: int
     shape: Mapping[str, int] | None
 
 
@@ -494,10 +515,25 @@ def _pool_values(
 
 
 def _instrument(raw: object) -> InstrumentProfile:
-    section = _table("instrument", raw)
-    _reject_unknown("instrument", section, ("profile",))
-    profile = section.get("profile", DEFAULT_PROFILE)
+    """The active profile, with §10's hand-span override applied (issue #57).
 
+    `position_span` sits beside `profile` rather than inside it so that it
+    reaches a built-in and an explicit tuning by the same route: a player whose
+    hand disagrees with `DEFAULT_POSITION_SPAN` should not have to write out a
+    whole tuning to say so.
+    """
+    section = _table("instrument", raw)
+    _reject_unknown("instrument", section, ("profile", "position_span"))
+    profile = _profile(section.get("profile", DEFAULT_PROFILE))
+    if "position_span" not in section:
+        return profile
+    return replace(
+        profile,
+        position_span=_positive("instrument.position_span", section["position_span"]),
+    )
+
+
+def _profile(profile: object) -> InstrumentProfile:
     if isinstance(profile, str):
         try:
             return resolve_profile(profile)
@@ -587,7 +623,7 @@ def _shape(raw: object) -> dict[str, int]:
 
 def _session(raw: object) -> SessionConfig:
     section = _table("session", raw)
-    _reject_unknown("session", section, ("count", "horizon", "max_notes", "shape"))
+    _reject_unknown("session", section, ("count", "horizon", "max_notes", "max_fret_span", "shape"))
 
     shape = _shape(section["shape"]) if "shape" in section else None
     count = _positive("session.count", section["count"]) if "count" in section else None
@@ -609,6 +645,10 @@ def _session(raw: object) -> SessionConfig:
         count=count,
         horizon=_positive("session.horizon", section.get("horizon", DEFAULT_HORIZON)),
         max_notes=_positive("session.max_notes", section.get("max_notes", DEFAULT_MAX_NOTES)),
+        max_fret_span=_positive(
+            "session.max_fret_span",
+            section.get("max_fret_span", DEFAULT_MAX_FRET_SPAN),
+        ),
         shape=shape,
     )
 

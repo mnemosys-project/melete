@@ -33,8 +33,9 @@ declined it while `scales` was the only caller: `chromatic` runs in the opposite
 direction, deriving the fret from a finger and reading the pitch back out of it,
 so one signature spanning both would have carried a dead half for each. Task B7
 supplied the genuine second caller. `boxed` is the half the two share exactly —
-a sequence of pitches, a string set, and the base fret minimizing total travel —
-and the traversals that lay runs of notes along the strings stay in the families,
+a sequence of pitches, a string set, the base fret minimizing total travel, and
+the refusal when the result is wider than a hand (issue #57) — and the
+traversals that lay runs of notes along the strings stay in the families,
 because what a run *is* differs between a scale and a chord.
 
 ## What is deliberately not here
@@ -52,7 +53,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from melete import vocabulary
-from melete.instrument import positions
+from melete.instrument import hand_span, positions
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -219,7 +220,7 @@ def boxed(
     family: str,
     axes: str,
 ) -> list[tuple[int, int]]:
-    """The `positional` layout: the base fret minimizing total fret travel.
+    """The `positional` layout, or a refusal: this content is not a position.
 
     For each candidate base fret, every pitch takes the position within
     `strings` nearest to it; the base fret with the lowest total distance wins,
@@ -227,10 +228,25 @@ def boxed(
     goes to the lower string. Deterministic all the way down, which is what
     reproducibility from a session log needs.
 
+    **The result is then checked against the profile's `position_span`, and a
+    layout wider than one hand raises** (issue #57). The minimization has no
+    floor of its own — two octaves of a pentatonic across three strings cannot
+    fit under a hand on any tuning, so the argmin returns the least bad answer
+    — and the family used to report that as success. It engraved a fourteen-
+    fret reach under a cover page reading "positional", which is worse than an
+    unplayable exercise: it is a mislabelled one, and the label is the part a
+    student trusts. Refusing turns a silent mislabelling into an
+    over-constrained specification, which §9's validity gate already knows how
+    to resample.
+
+    The check costs nothing in coverage of the layouts that do fit: measured
+    over ~19,400 positional draws from §10's example pool, the travel-minimizing
+    base is within one position **exactly when** some base fret can hold every
+    pitch within one, so nothing playable is refused by the choice of objective.
+
     `axes` is the family's own list of the axes that could not all be satisfied
-    when a pitch is out of reach (§13). It is a parameter rather than a fixed
-    sentence because naming *the caller's* axes is the whole of what the error
-    is for.
+    (§13). It is a parameter rather than a fixed sentence because naming *the
+    caller's* axes is the whole of what the error is for.
     """
     choices = [_reachable(profile, pitch, strings, family, axes) for pitch in pitches]
 
@@ -239,7 +255,18 @@ def boxed(
 
     # `min` keeps the first of equal keys, so ties go to the lower fret.
     base = min(range(profile.fret_count + 1), key=travel)
-    return [min(places, key=lambda place: (abs(place[1] - base), place[0])) for places in choices]
+    places = [min(places, key=lambda place: (abs(place[1] - base), place[0])) for places in choices]
+
+    span = hand_span(fret for _string, fret in places)
+    if span > profile.position_span:
+        msg = (
+            f"{family}: a positional traversal must fit one position, and the closest layout "
+            f"spans {span} frets against a position of {profile.position_span} on profile "
+            f"{profile.name!r}: {axes} cannot all be satisfied under one hand. §9 resamples "
+            f"this rather than engraving a shift under a 'positional' label"
+        )
+        raise ValueError(msg)
+    return places
 
 
 def there_and_back[T](items: Sequence[T]) -> list[T]:

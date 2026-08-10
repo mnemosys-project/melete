@@ -56,15 +56,22 @@ strings can carry three at a time — the family raises and names the axes that
 could not all be satisfied. This is §13's "pool over-constrained" case
 verbatim, and §9's validity gate exists to resample it.
 
-**`positional` minimizes total fret travel across the whole cycle.** For each
-candidate base fret, every degree takes the position within `string_set`
-nearest to it; the base fret with the lowest total distance wins, ties going to
-the lower fret, and a degree with two equally near positions goes to the lower
-string. A two-octave scale over four strings does not fit in one four-fret box
-on any tuning, so this is a genuine minimization rather than a lookup of a
-memorized shape — and it is deterministic, which is what reproducibility needs.
-The minimization itself is `_shared.boxed`, because `arpeggios` lays out its
-chord tones the same way; what stays here is the error it names on failure.
+**`positional` minimizes total fret travel across the whole cycle, and refuses
+what does not fit under one hand.** For each candidate base fret, every degree
+takes the position within `string_set` nearest to it; the base fret with the
+lowest total distance wins, ties going to the lower fret, and a degree with two
+equally near positions goes to the lower string. It is deterministic, which is
+what reproducibility needs.
+
+The minimization has no floor of its own, and that was a defect (issue #57): a
+two-octave scale over four strings does not fit in one position on any tuning,
+so the argmin returned the least bad answer and this family called it
+`positional` on the cover page — fourteen frets of reach under a label that
+promises one hand position. It now raises instead, naming the axes that could
+not be satisfied, and §9 resamples the draw. `range_octaves = 2` over a
+three-string set is simply not a positional exercise. Both halves live in
+`_shared.boxed`, because `arpeggios` lays out its chord tones the same way;
+what stays here is the axis list the error names.
 
 **`finger` is left unspecified.** §6 makes fingering first class because in
 *chromatic* permutation work the fingering is the exercise. Here the position

@@ -149,11 +149,13 @@ def _fingerprint(config: Config) -> dict[str, Any]:
             "name": config.instrument.name,
             "tuning": list(config.instrument.tuning),
             "fret_count": config.instrument.fret_count,
+            "position_span": config.instrument.position_span,
         },
         "session": {
             "count": config.session.count,
             "horizon": config.session.horizon,
             "max_notes": config.session.max_notes,
+            "max_fret_span": config.session.max_fret_span,
             "shape": None if config.session.shape is None else dict(config.session.shape),
         },
         "pool": {

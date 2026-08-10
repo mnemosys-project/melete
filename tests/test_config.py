@@ -61,6 +61,10 @@ def test_max_notes_defaults_are_present() -> None:
     assert load_string("").session.max_notes == 96
 
 
+def test_max_fret_span_defaults_to_one_octave_of_neck() -> None:
+    assert load_string("").session.max_fret_span == 12
+
+
 def test_explicit_tuning_is_accepted() -> None:
     cfg = load_string(DROP_D)
     assert cfg.instrument.tuning == (26, 33, 38, 43)
@@ -370,10 +374,43 @@ def test_max_notes_must_be_positive() -> None:
     assert "session.max_notes" in str(exc.value)
 
 
+def test_max_fret_span_must_be_positive() -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_string("[session]\nmax_fret_span = 0")
+    assert "session.max_fret_span" in str(exc.value)
+
+
 def test_horizon_and_max_notes_are_configurable() -> None:
     cfg = load_string("[session]\nhorizon = 7\nmax_notes = 48")
     assert cfg.session.horizon == 7
     assert cfg.session.max_notes == 48
+
+
+def test_max_fret_span_is_configurable() -> None:
+    assert load_string("[session]\nmax_fret_span = 7").session.max_fret_span == 7
+
+
+def test_the_position_span_belongs_to_the_instrument_and_is_configurable() -> None:
+    """§5: how many frets fall under one hand is a fact about the fretboard.
+
+    A family is a pure `params -> Score` function and the profile is the only
+    thing it is handed besides its parameters, which is also where the bound
+    belongs on its merits: fret spacing is what decides the reach.
+    """
+    assert load_string("").instrument.position_span == 4
+    assert load_string("[instrument]\nposition_span = 5").instrument.position_span == 5
+
+
+def test_the_position_span_applies_to_an_explicit_tuning_too() -> None:
+    cfg = load_string(DROP_D + "position_span = 6\n")
+    assert cfg.instrument.tuning == (26, 33, 38, 43)
+    assert cfg.instrument.position_span == 6
+
+
+def test_a_position_span_of_zero_is_rejected() -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_string("[instrument]\nposition_span = 0")
+    assert "instrument.position_span" in str(exc.value)
 
 
 def test_shape_declares_the_session_mix() -> None:

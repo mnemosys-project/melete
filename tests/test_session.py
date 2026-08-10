@@ -465,6 +465,17 @@ def test_the_configuration_hash_changes_with_the_pool() -> None:
     assert session.config_hash(narrower) != session.config_hash(config())
 
 
+def test_the_configuration_hash_covers_the_playability_bounds() -> None:
+    """They decide which specifications are valid, so they move the draw (#57)."""
+    bounded = load_string(CONFIG_TOML.replace("horizon = 14", "horizon = 14\nmax_fret_span = 9"))
+    narrow_hand = load_string(
+        CONFIG_TOML.replace('profile = "bass6"', 'profile = "bass6"\nposition_span = 3')
+    )
+
+    assert session.config_hash(bounded) != session.config_hash(config())
+    assert session.config_hash(narrow_hand) != session.config_hash(config())
+
+
 def test_the_configuration_hash_ignores_the_engraving_settings() -> None:
     """`[output]` decides how a drawn exercise is engraved, not which is drawn.
 
