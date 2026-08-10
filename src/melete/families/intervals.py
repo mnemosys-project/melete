@@ -115,10 +115,11 @@ _FAMILY = "intervals"
 #: declares it and the selector never samples it (decision #20); configuration
 #: overrides it per family through `[pool.intervals] tempo`.
 #:
-#: §7's table says 70-90 in places. String crossing and skipping do cost
-#: accuracy at speed, which is why this range starts below the scales' — but
-#: the original numbers were reasoned from categories rather than from an
-#: instrument and came out too slow to practise against.
+#: String crossing and skipping do cost accuracy at speed, which is why this
+#: range starts below the scales' — but not by as much as the original 70-90
+#: assumed, which was reasoned from categories rather than from an instrument
+#: and came out too slow to practise against. §7 carries that reasoning; the
+#: number is declared here.
 DEFAULT_TEMPO_RANGE = (70, 130)
 
 #: The un-modified reading: one note per beat in common time. `rhythm.py` (§8)
