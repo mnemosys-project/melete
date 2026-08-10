@@ -83,6 +83,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory, vocabulary
+from melete.families._shared import Parameters, apply_direction
 from melete.instrument import positions
 from melete.score import Note, Score
 
@@ -91,6 +92,10 @@ if TYPE_CHECKING:
 
     from melete.instrument import InstrumentProfile
     from melete.score import Voice
+
+#: This family's identifier in `vocabulary.AXES["family"]`, and the prefix on
+#: every error this module raises (§13). Written once so the two cannot drift.
+_FAMILY = "scales"
 
 #: Spec §7's tempo range for this family, in beats per minute. The *family*
 #: declares it and the selector never samples it (decision #20); configuration
@@ -159,33 +164,7 @@ _RANGE_OCTAVES = (1, 2, 3)
 _NOTES_PER_STRING = 3
 
 
-def _parameter(params: Mapping[str, object], axis: str) -> object:
-    """One parameter, or an error naming the axis and the full set (§13)."""
-    if axis not in params:
-        msg = f"scales: parameter {axis!r} is required; the family's axes are {list(AXES)}"
-        raise ValueError(msg)
-    return params[axis]
-
-
-def _identifier(params: Mapping[str, object], axis: str) -> str:
-    """One registry identifier, checked against `vocabulary` and nothing else."""
-    value = _parameter(params, axis)
-    if not isinstance(value, str) or value not in vocabulary.AXES[axis]:
-        msg = f"scales: unknown {axis} {value!r}; accepted: {vocabulary.accepted(axis)}"
-        raise ValueError(msg)
-    return value
-
-
-def _integer(params: Mapping[str, object], axis: str) -> int:
-    """One range-like axis. `bool` is rejected: `True` is not root 1."""
-    value = _parameter(params, axis)
-    if isinstance(value, bool) or not isinstance(value, int):
-        msg = f"scales: {axis} must be an integer, got {value!r}"
-        raise ValueError(msg)
-    return value
-
-
-def _realizable(params: Mapping[str, object], axis: str, accepted: tuple[str, ...]) -> str:
+def _realizable(read: Parameters, axis: str, accepted: tuple[str, ...]) -> str:
     """One identifier from the subset of a shared axis this family realizes.
 
     `vocabulary` carries the union of every family's values for `traversal` and
@@ -193,24 +172,26 @@ def _realizable(params: Mapping[str, object], axis: str, accepted: tuple[str, ..
     another family is rejected here by name rather than dispatched into a
     branch that does not exist.
     """
-    value = _identifier(params, axis)
+    value = read.identifier(axis)
     if value not in accepted:
         realized = list(accepted)
-        msg = f"scales: {axis} {value!r} belongs to another family; scales realizes {realized}"
+        msg = (
+            f"{_FAMILY}: {axis} {value!r} belongs to another family; {_FAMILY} realizes {realized}"
+        )
         raise ValueError(msg)
     return value
 
 
-def _octaves(params: Mapping[str, object]) -> int:
+def _octaves(read: Parameters) -> int:
     """The `range_octaves` axis, which §7 enumerates rather than leaves open."""
-    value = _integer(params, "range_octaves")
+    value = read.integer("range_octaves")
     if value not in _RANGE_OCTAVES:
-        msg = f"scales: range_octaves must be one of {list(_RANGE_OCTAVES)}, got {value}"
+        msg = f"{_FAMILY}: range_octaves must be one of {list(_RANGE_OCTAVES)}, got {value}"
         raise ValueError(msg)
     return value
 
 
-def _string_set(params: Mapping[str, object], profile: InstrumentProfile) -> tuple[int, ...]:
+def _string_set(read: Parameters, profile: InstrumentProfile) -> tuple[int, ...]:
     """The strings the exercise is laid across, low to high.
 
     Strictly ascending and validated rather than repaired, for the reason
@@ -218,19 +199,19 @@ def _string_set(params: Mapping[str, object], profile: InstrumentProfile) -> tup
     set would engrave a different string set from the one the selector drew,
     and §9's coverage accounting would have no way to see the substitution.
     """
-    value = _parameter(params, "string_set")
+    value = read.value("string_set")
     if not isinstance(value, list | tuple) or not value:
-        msg = f"scales: string_set must be a non-empty sequence of string indices, got {value!r}"
+        msg = f"{_FAMILY}: string_set must be a non-empty sequence of string indices, got {value!r}"
         raise ValueError(msg)
 
     strings = tuple(value)
     if any(isinstance(item, bool) or not isinstance(item, int) for item in strings):
-        msg = f"scales: string_set must hold integer string indices, got {value!r}"
+        msg = f"{_FAMILY}: string_set must hold integer string indices, got {value!r}"
         raise ValueError(msg)
 
     if list(strings) != sorted(set(strings)):
         msg = (
-            f"scales: string_set {list(strings)} must be strictly ascending with no "
+            f"{_FAMILY}: string_set {list(strings)} must be strictly ascending with no "
             f"repeats; index 0 is the lowest string, and re-sorting it here would "
             f"engrave a different string set from the one that was specified"
         )
@@ -239,7 +220,7 @@ def _string_set(params: Mapping[str, object], profile: InstrumentProfile) -> tup
     last = len(profile.tuning) - 1
     if strings[0] < 0 or strings[-1] > last:
         msg = (
-            f"scales: string_set {list(strings)} is off profile {profile.name!r}, "
+            f"{_FAMILY}: string_set {list(strings)} is off profile {profile.name!r}, "
             f"which has strings 0 to {last}"
         )
         raise ValueError(msg)
@@ -252,16 +233,6 @@ def _patterned(pattern: str, degrees: int) -> list[int]:
     return [start + offset for start in range(degrees - max(window)) for offset in window]
 
 
-def _directed(indices: Sequence[int], direction: str) -> list[int]:
-    """`indices` ordered by §7's `direction` axis."""
-    if direction == "up":
-        return list(indices)
-    if direction == "down":
-        return list(reversed(indices))
-    # up_down: back down without replaying the turnaround degree.
-    return [*indices, *indices[-2::-1]]
-
-
 def _reachable(
     profile: InstrumentProfile,
     pitch: int,
@@ -271,7 +242,7 @@ def _reachable(
     places = [place for place in positions(profile, pitch) if place[0] in strings]
     if not places:
         msg = (
-            f"scales: pitch {pitch} is unreachable on strings {list(strings)} of profile "
+            f"{_FAMILY}: pitch {pitch} is unreachable on strings {list(strings)} of profile "
             f"{profile.name!r}, which has frets 0 to {profile.fret_count}: root, "
             f"scale_type, range_octaves and string_set cannot all be satisfied on this "
             f"instrument"
@@ -325,7 +296,7 @@ def _laid_out(
             fret = pitch - profile.tuning[string]
             if not 0 <= fret <= profile.fret_count:
                 msg = (
-                    f"scales: pitch {pitch} needs fret {fret} on string {string} of profile "
+                    f"{_FAMILY}: pitch {pitch} needs fret {fret} on string {string} of profile "
                     f"{profile.name!r}, which has frets 0 to {profile.fret_count}. The cycle "
                     f"is never truncated to fit (§7), so this specification is unrealizable "
                     f"rather than shorter"
@@ -351,7 +322,7 @@ def _places(
     sizes = _chunk_sizes(traversal, len(pitches), octaves, len(strings))
     if len(sizes) != len(strings) or sum(sizes) != len(pitches):
         msg = (
-            f"scales: traversal {traversal!r} needs {len(sizes)} strings carrying "
+            f"{_FAMILY}: traversal {traversal!r} needs {len(sizes)} strings carrying "
             f"{sum(sizes)} degrees, but string_set {list(strings)} has {len(strings)} "
             f"and {octaves} octaves of {scale_type!r} has {len(pitches)}. traversal, "
             f"string_set, range_octaves and scale_type cannot all be satisfied at once; "
@@ -382,17 +353,18 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
     """
-    root = _integer(params, "root")
-    scale_type = _identifier(params, "scale_type")
-    traversal = _realizable(params, "traversal", _TRAVERSALS)
-    pattern = _realizable(params, "pattern", tuple(_PATTERN_WINDOWS))
-    direction = _identifier(params, "direction")
-    octaves = _octaves(params)
-    strings = _string_set(params, profile)
+    read = Parameters(_FAMILY, AXES, params)
+    root = read.integer("root")
+    scale_type = read.identifier("scale_type")
+    traversal = _realizable(read, "traversal", _TRAVERSALS)
+    pattern = _realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
+    direction = read.identifier("direction")
+    octaves = _octaves(read)
+    strings = _string_set(read, profile)
 
     pitches = theory.scale_pitches(root, scale_type, octaves)
     places = _places(profile, pitches, strings, traversal, scale_type, octaves)
-    order = _directed(_patterned(pattern, len(pitches)), direction)
+    order = apply_direction(_patterned(pattern, len(pitches)), direction)
 
     voice: Voice = [
         Note(
