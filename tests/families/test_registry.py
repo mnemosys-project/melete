@@ -10,7 +10,7 @@ smoke test's parameters.
 
 from __future__ import annotations
 
-from conftest import assert_central_invariant
+from conftest import assert_central_invariant, assert_spelling_sounds_correctly
 
 from melete import vocabulary
 from melete.families import REGISTRY
@@ -65,3 +65,4 @@ def test_every_family_answers_the_same_call() -> None:
         score = REGISTRY[identifier](PROFILES["bass6"], spec)
         assert isinstance(score, Score)
         assert_central_invariant(score)
+        assert_spelling_sounds_correctly(score)

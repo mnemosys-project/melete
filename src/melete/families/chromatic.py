@@ -233,5 +233,10 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         time_signature=DEFAULT_TIME_SIGNATURE,
         tempo_range=DEFAULT_TEMPO_RANGE,
         voice=voice,
+        # Stated rather than left to the default: permutation work asserts no
+        # tonal center at all, so this family is tier 3 by definition (§10a)
+        # and spells by direction. `None` is the answer here, not the omission
+        # it would be in a family that has a key to give.
+        key=None,
         params=dict(params),
     )

@@ -21,7 +21,7 @@ from itertools import product
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import assert_central_invariant, notes_of
+from conftest import assert_central_invariant, assert_spelling_sounds_correctly, notes_of
 
 from melete import theory
 from melete.families.scales import DEFAULT_TEMPO_RANGE, INSTRUCTION, generate
@@ -82,6 +82,23 @@ def test_generates_one_complete_cycle() -> None:
 
 def test_obeys_the_central_invariant() -> None:
     assert_central_invariant(generate(BASS6, PARAMS))
+
+
+def test_spells_every_note_as_it_sounds() -> None:
+    assert_spelling_sounds_correctly(generate(BASS6, PARAMS))
+
+
+def test_the_key_is_the_root_and_the_scale_type() -> None:
+    # §10a: the family already holds both, so stating the key costs it nothing
+    # — and not stating it costs every note on the sheet its spelling.
+    assert generate(BASS6, PARAMS).key == theory.Key(9, "ionian")
+
+
+@pytest.mark.parametrize(("root", "tonic"), [(33, 9), (24, 0), (30, 6)])
+def test_the_tonic_is_a_pitch_class_and_not_the_root_pitch(root: int, tonic: int) -> None:
+    # A1 and A2 are the same key. `root` stays an absolute pitch everywhere
+    # else (§10a), which is exactly why the reduction has to happen here.
+    assert generate(BASS6, params(root=root)).key == theory.Key(tonic, "ionian")
 
 
 def test_params_travel_inside_the_score() -> None:
@@ -362,13 +379,17 @@ def test_a_degree_keeps_its_place_however_often_the_pattern_visits_it(
 def test_invariant_holds_across_every_root_and_scale(root: int, scale_type: str) -> None:
     score = generate(BASS6, params(root=root, scale_type=scale_type))
     assert_central_invariant(score)
+    assert_spelling_sounds_correctly(score)
+    assert score.key == theory.Key(root % 12, scale_type)
     assert len(score.voice) == len(theory.scale_pitches(root, scale_type, 2))
     assert {note.string for note in notes_of(score)} <= {0, 1, 2, 3}
 
 
 @pytest.mark.parametrize(("pattern", "direction"), list(product(PATTERNS, DIRECTIONS)))
 def test_invariant_holds_across_patterns_and_directions(pattern: str, direction: str) -> None:
-    assert_central_invariant(generate(BASS6, params(pattern=pattern, direction=direction)))
+    score = generate(BASS6, params(pattern=pattern, direction=direction))
+    assert_central_invariant(score)
+    assert_spelling_sounds_correctly(score)
 
 
 @pytest.mark.parametrize("profile_name", sorted(PROFILES))
