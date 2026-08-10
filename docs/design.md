@@ -9,6 +9,7 @@ spec, the spec is correct and this page is stale.
 ## Table of Contents
 
 - [What melete is](#what-melete-is)
+- [Running it](#running-it)
 - [Module layout](#module-layout)
 - [The two load-bearing boundaries](#the-two-load-bearing-boundaries)
 - [The central invariant](#the-central-invariant)
@@ -24,6 +25,23 @@ containing both standard notation and tablature.
 
 The success criterion is practical, not architectural: run one command each
 morning and get a practice sheet good enough to hand to a bass instructor.
+
+## Running it
+
+`examples/config.toml` is the worked example from §10 of the spec. Copy it to
+wherever you intend to run from — it is a starting point, not a file the tool
+reads out of the repository.
+
+Melete resolves both the configuration and the `sessions/` output directory
+relative to the current working directory, so run experiments from `build/`
+rather than the repository root. `build/` is gitignored, which keeps generated
+sheets and session logs out of tracked space without ignoring them case by
+case:
+
+```bash
+mkdir -p build && cd build && cp ../examples/config.toml .
+melete generate
+```
 
 ## Module layout
 
