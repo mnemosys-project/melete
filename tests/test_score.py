@@ -1,0 +1,340 @@
+"""Tests for the Score IR and the contract at the seam.
+
+The three tests under "The written-duration contract" are the point of this
+module. Decision #16 makes `Note.duration` the *written* value and derives
+sounding time from `Tuplet.ratio`; `rhythm.py` and `lilypond/emit.py` sit on
+opposite sides of that seam, so a drift between them would render every tuplet
+on every sheet at the wrong note value. These tests are what keep the two
+honest about which value they are handling.
+
+The remainder pins the structural rules the annotations state but cannot
+enforce: one level of nesting, and no Score that could not be engraved.
+"""
+
+from dataclasses import FrozenInstanceError
+from fractions import Fraction
+from typing import Any, cast
+
+import pytest
+
+from melete.instrument import PROFILES
+from melete.score import Note, Score, Tuplet, Voice, sounding_duration
+
+QUARTER = Fraction(1, 4)
+EIGHTH = Fraction(1, 8)
+SIXTEENTH = Fraction(1, 16)
+
+BASS6 = PROFILES["bass6"]
+
+
+def _n(duration: Fraction = QUARTER) -> Note:
+    """A note that exists only to carry a duration."""
+    return Note(pitch=60, string=0, fret=0, duration=duration, finger=None, accent=False)
+
+
+def _triplet() -> Tuplet:
+    """Three written eighths in the time of two — one sounding quarter."""
+    return Tuplet(ratio=(3, 2), notes=[_n(EIGHTH), _n(EIGHTH), _n(EIGHTH)])
+
+
+def _score(voice: Voice | None = None, **overrides: Any) -> Score:
+    """A minimal valid Score, with any field overridable."""
+    fields: dict[str, Any] = {
+        "title": "C Ionian, positional",
+        "instruction": "Keep the plucking hand even.",
+        "instrument": BASS6,
+        "time_signature": (4, 4),
+        "tempo_range": (80, 100),
+        "voice": [_n()] if voice is None else voice,
+    }
+    fields.update(overrides)
+    return Score(**fields)
+
+
+# --------------------------------------------------------------------------
+# The written-duration contract (decision #16)
+# --------------------------------------------------------------------------
+
+
+def test_plain_notes_sound_as_written() -> None:
+    assert sounding_duration([_n(QUARTER)] * 4) == Fraction(1)
+
+
+def test_triplet_notes_are_written_eighths_sounding_a_quarter() -> None:
+    """Written: three eighths = 3/8. Sounding: 3/8 * 2/3 = 1/4."""
+    assert sounding_duration([_triplet()]) == QUARTER
+
+
+def test_mixed_voice_sums_correctly() -> None:
+    assert sounding_duration([_n(QUARTER), _triplet()]) == Fraction(1, 2)
+
+
+def test_an_empty_voice_sounds_for_no_time() -> None:
+    assert sounding_duration([]) == Fraction(0)
+
+
+def test_written_duration_is_not_the_sounding_duration_inside_a_tuplet() -> None:
+    """The contract stated as a difference, since that is where drift shows."""
+    trip = _triplet()
+    written = sum((note.duration for note in trip.notes), Fraction(0))
+    assert written == Fraction(3, 8)
+    assert sounding_duration([trip]) == Fraction(1, 4)
+    assert sounding_duration([trip]) != written
+
+
+def test_every_note_in_a_tuplet_keeps_a_representable_written_value() -> None:
+    """Why written durations win: 1/12 is not a notehead (spec §6)."""
+    for note in _triplet().notes:
+        assert note.duration == EIGHTH
+        assert note.duration.numerator == 1
+        assert note.duration.denominator & (note.duration.denominator - 1) == 0
+
+
+def test_a_quintuplet_of_sixteenths_sounds_a_quarter() -> None:
+    """Five in the time of four: 5/16 * 4/5 = 1/4. Exact, because Fraction."""
+    quint = Tuplet(ratio=(5, 4), notes=[_n(SIXTEENTH)] * 5)
+    assert sounding_duration([quint]) == QUARTER
+
+
+def test_a_tuplet_may_hold_mixed_written_durations() -> None:
+    """Long-short inside a triplet (§8): 1/4 + 1/8 written, times 2/3."""
+    swung = Tuplet(ratio=(3, 2), notes=[_n(QUARTER), _n(EIGHTH)])
+    assert sounding_duration([swung]) == QUARTER
+
+
+def test_sounding_duration_returns_a_fraction_not_a_float() -> None:
+    """Exactness is the reason for Fraction; a float total would drift."""
+    assert isinstance(sounding_duration([_triplet(), _n(QUARTER)]), Fraction)
+
+
+def test_a_full_bar_of_triplet_eighths_sounds_as_written_quarters_would() -> None:
+    """Four triplets fill 4/4 exactly, which is what the §9 length gate reads."""
+    assert sounding_duration([_triplet() for _ in range(4)]) == Fraction(1)
+
+
+# --------------------------------------------------------------------------
+# One level of nesting, no more (spec §6)
+# --------------------------------------------------------------------------
+
+
+def test_a_tuplet_inside_a_tuplet_is_rejected() -> None:
+    """The rule the annotation states and cannot enforce."""
+    with pytest.raises(TypeError, match="one level of nesting"):
+        Tuplet(ratio=(3, 2), notes=cast("list[Note]", [_triplet()]))
+
+
+def test_a_tuplet_naming_the_offending_element_rejects_any_foreign_type() -> None:
+    with pytest.raises(TypeError, match="element 1"):
+        Tuplet(ratio=(3, 2), notes=cast("list[Note]", [_n(), "rest", _n()]))
+
+
+def test_a_voice_holding_something_other_than_notes_and_tuplets_is_rejected() -> None:
+    with pytest.raises(TypeError, match="element 0"):
+        _score(voice=cast("Voice", [[_n()]]))
+
+
+def test_a_voice_of_notes_and_tuplets_is_accepted() -> None:
+    score = _score(voice=[_n(), _triplet(), _n()])
+    assert len(score.voice) == 3
+
+
+# --------------------------------------------------------------------------
+# Note
+# --------------------------------------------------------------------------
+
+
+def test_a_note_stores_both_pitch_and_position() -> None:
+    """Decision #5: position is musical information, not a rendering detail."""
+    note = Note(pitch=60, string=5, fret=12, duration=QUARTER, finger=3, accent=True)
+    assert note.pitch == BASS6.tuning[note.string] + note.fret
+    assert note.finger == 3
+    assert note.accent is True
+
+
+@pytest.mark.parametrize("finger", [1, 2, 3, 4, None])
+def test_every_left_hand_finger_and_none_is_accepted(finger: int | None) -> None:
+    assert Note(60, 0, 0, QUARTER, finger, accent=False).finger == finger
+
+
+@pytest.mark.parametrize("finger", [0, 5, -1])
+def test_a_finger_outside_one_to_four_is_rejected(finger: int) -> None:
+    with pytest.raises(ValueError, match="finger must be 1-4"):
+        Note(60, 0, 0, QUARTER, finger, accent=False)
+
+
+@pytest.mark.parametrize("duration", [Fraction(0), Fraction(-1, 4)])
+def test_a_note_without_positive_duration_is_rejected(duration: Fraction) -> None:
+    with pytest.raises(ValueError, match="duration must be positive"):
+        _n(duration)
+
+
+def test_a_negative_string_index_is_rejected_rather_than_addressing_from_the_top() -> None:
+    """Python would index the tuning from the high string and look correct."""
+    with pytest.raises(ValueError, match="string index"):
+        Note(60, -1, 0, QUARTER, None, accent=False)
+
+
+def test_a_negative_fret_is_rejected() -> None:
+    with pytest.raises(ValueError, match="fret must be at least 0"):
+        Note(60, 0, -1, QUARTER, None, accent=False)
+
+
+def test_fret_zero_is_the_open_string_and_is_accepted() -> None:
+    assert Note(28, 0, 0, QUARTER, None, accent=False).fret == 0
+
+
+# --------------------------------------------------------------------------
+# Tuplet
+# --------------------------------------------------------------------------
+
+
+def test_a_tuplet_records_its_ratio_verbatim() -> None:
+    """(3, 2) reads as three in the time of two, and maps to \\tuplet 3/2."""
+    assert _triplet().ratio == (3, 2)
+
+
+@pytest.mark.parametrize("ratio", [(0, 2), (3, 0), (-3, 2)])
+def test_a_non_positive_tuplet_ratio_is_rejected(ratio: tuple[int, int]) -> None:
+    with pytest.raises(ValueError, match="two positive integers"):
+        Tuplet(ratio=ratio, notes=[_n(EIGHTH)])
+
+
+def test_an_empty_tuplet_is_rejected() -> None:
+    """`\\tuplet 3/2 { }` is not engravable, and sounds for no time."""
+    with pytest.raises(ValueError, match="at least one note"):
+        Tuplet(ratio=(3, 2), notes=[])
+
+
+# --------------------------------------------------------------------------
+# Score
+# --------------------------------------------------------------------------
+
+
+def test_a_score_carries_the_parameters_that_produced_it() -> None:
+    """Spec §6: params travels inside the Score for the session log."""
+    params = {"root": "d", "scale_type": "dorian"}
+    assert _score(params=params).params == params
+
+
+def test_params_defaults_to_a_fresh_dictionary_per_score() -> None:
+    """default_factory, not a shared mutable default."""
+    first, second = _score(), _score()
+    assert first.params == {}
+    assert first.params is not second.params
+
+
+def test_the_instruction_may_be_empty_when_a_family_supplies_no_cue() -> None:
+    assert _score(instruction="").instruction == ""
+
+
+def test_the_instrument_profile_travels_with_the_score() -> None:
+    assert _score().instrument is BASS6
+
+
+@pytest.mark.parametrize("time_signature", [(0, 4), (4, 0), (-4, 4)])
+def test_a_non_positive_time_signature_is_rejected(time_signature: tuple[int, int]) -> None:
+    with pytest.raises(ValueError, match="two positive integers"):
+        _score(time_signature=time_signature)
+
+
+def test_a_time_signature_denominator_that_is_not_a_note_value_is_rejected() -> None:
+    """The lower number names a note value, and there is no third note."""
+    with pytest.raises(ValueError, match="power of two"):
+        _score(time_signature=(4, 3))
+
+
+@pytest.mark.parametrize("time_signature", [(4, 4), (3, 4), (5, 4), (6, 8), (7, 8), (12, 8)])
+def test_every_time_signature_in_the_rhythm_axis_is_accepted(
+    time_signature: tuple[int, int],
+) -> None:
+    """Spec §8 enumerates exactly these."""
+    assert _score(time_signature=time_signature).time_signature == time_signature
+
+
+@pytest.mark.parametrize("tempo_range", [(0, 100), (-80, 100)])
+def test_a_non_positive_tempo_is_rejected(tempo_range: tuple[int, int]) -> None:
+    with pytest.raises(ValueError, match="tempo must be positive"):
+        _score(tempo_range=tempo_range)
+
+
+def test_a_tempo_range_running_backwards_is_rejected() -> None:
+    with pytest.raises(ValueError, match="slowest to fastest"):
+        _score(tempo_range=(100, 80))
+
+
+def test_a_single_tempo_expressed_as_an_equal_range_is_accepted() -> None:
+    assert _score(tempo_range=(90, 90)).tempo_range == (90, 90)
+
+
+def test_an_empty_voice_is_accepted() -> None:
+    """The IR does not decide what counts as an exercise; §9's gate does."""
+    assert _score(voice=[]).voice == []
+
+
+# --------------------------------------------------------------------------
+# Frozen shallowly, and not hashable
+# --------------------------------------------------------------------------
+
+
+def _rebind(target: object, field_name: str, value: object) -> None:
+    """Assign through the runtime, which is where frozen-ness is enforced.
+
+    Written as an assignment the type checkers would reject the statement
+    outright, and a silenced error proves nothing about what happens when the
+    code actually runs.
+    """
+    setattr(target, field_name, value)
+
+
+def test_a_note_cannot_be_rebound() -> None:
+    with pytest.raises(FrozenInstanceError):
+        _rebind(_n(), "duration", EIGHTH)
+
+
+def test_a_tuplet_cannot_be_rebound() -> None:
+    with pytest.raises(FrozenInstanceError):
+        _rebind(_triplet(), "ratio", (5, 4))
+
+
+def test_a_score_cannot_be_rebound() -> None:
+    with pytest.raises(FrozenInstanceError):
+        _rebind(_score(), "title", "other")
+
+
+def test_a_note_is_hashable_being_made_of_scalars() -> None:
+    assert hash(_n()) == hash(_n())
+
+
+def test_a_tuplet_is_not_hashable_and_nothing_needs_it_to_be() -> None:
+    """§6 specifies a list; hashing is not loosened to work around that."""
+    with pytest.raises(TypeError):
+        hash(_triplet())
+
+
+def test_a_score_is_not_hashable_and_nothing_needs_it_to_be() -> None:
+    with pytest.raises(TypeError):
+        hash(_score())
+
+
+def test_freezing_is_shallow_so_contents_stay_mutable() -> None:
+    """Stated as a test so no caller mistakes frozen for deeply immutable."""
+    score = _score()
+    score.params["root"] = "d"
+    assert score.params == {"root": "d"}
+
+
+# --------------------------------------------------------------------------
+# Equality
+# --------------------------------------------------------------------------
+
+
+def test_two_notes_with_the_same_fields_are_equal() -> None:
+    assert _n() == _n()
+
+
+def test_notes_differing_only_in_written_duration_are_not_equal() -> None:
+    assert _n(QUARTER) != _n(EIGHTH)
+
+
+def test_two_scores_with_the_same_fields_are_equal() -> None:
+    assert _score() == _score()
