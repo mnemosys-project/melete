@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "melete"
+version = "0.1.0"
+description = "Practice exercise generator. Parameterized bass exercises rendered to standard notation and tablature via LilyPond."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+authors = [{ name = "Phillip Moore" }]
+keywords = ["music", "practice", "bass", "lilypond", "tablature", "notation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: End Users/Desktop",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Multimedia :: Sound/Audio",
+]
+
+# No runtime Python dependencies (spec section 15, decision 5).
+#
+# LilyPond is required, but as a *binary on PATH*, not as a Python package.
+# The PyPI redistribution ships x86_64 wheels only - no aarch64 build exists
+# for any of its 16 releases - so it cannot be a hard dependency on Apple
+# Silicon or on the arm64 dev container.
+#
+# lilypond/render.py is the only module that knows the binary exists, and
+# section 13 requires it to fail with an explicit resolution when the binary
+# is missing. Obtaining LilyPond is therefore an environment concern:
+#   Debian/Ubuntu   apt-get install lilypond      (2.24.4 on trixie arm64)
+#   macOS           brew install lilypond, or the upstream darwin-arm64 tarball
+#
+# See melete#21 for the work to publish our own aarch64 wheels, which would
+# restore the zero-prerequisite install this originally aimed at.
+dependencies = []
+
+[project.optional-dependencies]
+# The PyPI redistribution, for x86_64 platforms where it does resolve. Opt-in:
+# `uv sync --extra bundled-lilypond`. The pin is exact because this package is
+# not tracking upstream and a range would silently change the renderer.
+bundled-lilypond = ["lilypond==2.25.12"]
+
+[project.urls]
+Homepage = "https://github.com/mnemosys-project/melete"
+Issues = "https://github.com/mnemosys-project/melete/issues"
+
+# [project.scripts] is added by task B15a, which creates melete/cli.py.
+# Declaring the entry point before its target exists would install a command
+# that fails only when run.
+
+[dependency-groups]
+# Exactly the tools vrg-validate invokes. The typecheck stage runs BOTH `ty`
+# and mypy; the audit stage runs pip-audit and pip-licenses. Dropping any of
+# them fails the pipeline with a FileNotFoundError rather than a useful
+# message, so this list is a contract with vrg-validate, not a preference.
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "ty>=0.0.1a1",
+  "mypy>=1.11",
+  "pip-audit>=2.7",
+  "pip-licenses>=5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W", "I", "N", "UP", "S", "B", "A",
+  "C4", "SIM", "TCH", "ARG", "PTH", "ERA",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may use assert and may shadow builtins in fixtures.
+"tests/**" = ["S101", "ARG001"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+  "integration: requires the LilyPond binary or writes to disk (spec section 14)",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+]
