@@ -7,7 +7,21 @@ primary-language = "python"
 
 [ci]
 versions = ["3.14"]
-integration-tests = true
+# Disabled until integration tests are supported by the tooling and the
+# container carries LilyPond. See melete#23.
+#
+# This does not remove any test. Spec section 14 specifies two tests that
+# invoke the LilyPond binary - the render integration test and the CLI
+# end-to-end smoke test - and both will be written and both run locally.
+# What is switched off is CI's claim to run a suite it has no way to run:
+# setting this true adds `test / integration / 3.14` to the branch ruleset's
+# required checks, but the generated workflow never emits that context, so
+# the branch becomes unmergeable with every check green.
+#
+# Two preconditions for turning this back on:
+#   vergil-tooling#2720 - the context must actually be emitted
+#   vergil-tooling#2718 - the container must carry the binary
+integration-tests = false
 
 [publish]
 release = true
