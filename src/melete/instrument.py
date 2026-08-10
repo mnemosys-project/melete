@@ -15,10 +15,21 @@ test asserts it against generated notes.
 specifications are valid, which determines the candidate pool, which determines
 what the selector draws — two installations disagreeing about it would produce
 different sheets from the same seed.
+
+`position_span` is the second such number and is here for the same reason plus
+one of its own. A family is a pure `params -> Score` function (§7) and the
+profile is the only thing it is handed besides its parameters, so a bound a
+family must respect has nowhere else to live — but it also *belongs* here:
+how many frets fall under one hand is a fact about fret spacing, which is a
+fact about the instrument. `hand_span` is the query that reads it.
 """
 
 from dataclasses import dataclass
 from itertools import pairwise
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Absolute pitches, C4 = 60. Named so the tunings below read as an instrument
 # rather than as arithmetic.
@@ -39,6 +50,20 @@ _BASS6_TUNING = (*_BASS5_TUNING, _C3)
 _SHORT_FRETBOARD = 20
 _LONG_FRETBOARD = 24
 
+#: How far the fretting hand reaches without shifting, as a **span**: the
+#: distance from its lowest fretted note to its highest.
+#:
+#: Four fingers cover four frets, and reaching one fret beyond them is ordinary
+#: technique rather than a stretch a player would notice, so one hand position
+#: is five frets and the span between its outermost notes is four. That is the
+#: number a real position measures: exercise 2 of `sessions/2026-08-10` — the
+#: one the issue #57 table calls a genuine position — spans frets 2 to 6.
+#:
+#: It is a default rather than a constant because it follows the fret spacing:
+#: a short-scale instrument puts more frets under the same hand, and a player
+#: whose reach disagrees overrides it in `[instrument] position_span` (§10).
+DEFAULT_POSITION_SPAN = 4
+
 
 @dataclass(frozen=True)
 class InstrumentProfile:
@@ -48,11 +73,15 @@ class InstrumentProfile:
     ordering is validated rather than repaired: sorting a malformed tuning
     would shift every string index and engrave the wrong instrument
     convincingly, which is precisely the silent failure the design forbids.
+
+    `position_span` says how much neck one hand position covers, and it is what
+    makes `positional` mean a position rather than a label (issue #57).
     """
 
     name: str
     tuning: tuple[int, ...]
     fret_count: int
+    position_span: int = DEFAULT_POSITION_SPAN
 
     def __post_init__(self) -> None:
         if not self.tuning:
@@ -71,6 +100,13 @@ class InstrumentProfile:
 
         if self.fret_count < 1:
             msg = f"profile {self.name!r} has fret_count {self.fret_count}; expected at least 1"
+            raise ValueError(msg)
+
+        if self.position_span < 1:
+            msg = (
+                f"profile {self.name!r} has position_span {self.position_span}; expected at "
+                f"least 1, since a hand that reaches no further than one fret is not a hand"
+            )
             raise ValueError(msg)
 
 
@@ -124,6 +160,26 @@ def pitch_at(profile: InstrumentProfile, string: int, fret: int) -> int:
         raise ValueError(msg)
 
     return profile.tuning[string] + fret
+
+
+def hand_span(frets: Iterable[int]) -> int:
+    """How far the fretting hand must reach to play `frets`.
+
+    The distance from the lowest fretted note to the highest, which is the
+    quantity both playability bounds are stated in: `position_span` above, and
+    §10's `[session] max_fret_span` for exercises that shift deliberately.
+
+    **Open strings do not count.** Fret 0 is sounded by the plucking hand while
+    the fretting hand stays where it is, so an open string neither extends the
+    reach nor pins it to the nut: the classic A minor pentatonic box is the
+    open A against frets 3, 5 and 7, which is one position plus an open string
+    and not an eight-fret stretch. A passage of open strings alone asks nothing
+    of the hand at all, and answers 0.
+    """
+    fretted = [fret for fret in frets if fret > 0]
+    if not fretted:
+        return 0
+    return max(fretted) - min(fretted)
 
 
 def positions(profile: InstrumentProfile, pitch: int) -> list[tuple[int, int]]:

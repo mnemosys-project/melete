@@ -14,9 +14,17 @@ so is the easiest line in this codebase to write backwards.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from melete.families._shared import Parameters, apply_direction, there_and_back
+from melete.families._shared import Parameters, apply_direction, boxed, there_and_back
+from melete.instrument import PROFILES, hand_span
+
+BASS6 = PROFILES["bass6"]
+
+#: What a `positional` caller passes as the axes it could not satisfy (§13).
+AXIS_LIST = "root, scale_type, range_octaves and string_set"
 
 #: A family that does not exist, named to prove the reader is parameterized
 #: rather than quietly hard-coded to one of the two families that use it.
@@ -101,6 +109,46 @@ def test_a_missing_axis_is_reported_before_its_type_is() -> None:
 def test_extra_parameters_are_ignored_rather_than_rejected() -> None:
     # §8's rhythm axes travel in the same dictionary as §7's family axes.
     assert reader(root=33, subdivision="eighth").integer("root") == 33
+
+
+# --------------------------------------------------------------------------
+# `boxed`: `positional` means a position, or it means nothing (issue #57)
+# --------------------------------------------------------------------------
+
+
+def test_a_layout_that_fits_the_hand_is_returned() -> None:
+    # Three degrees of A Ionian across the E and A strings: every one of them
+    # lies under a hand at the fifth fret.
+    places = boxed(BASS6, [33, 35, 37], (1, 2), "scales", AXIS_LIST)
+    assert hand_span(fret for _string, fret in places) <= BASS6.position_span
+
+
+def test_content_wider_than_a_position_raises_rather_than_reporting_success() -> None:
+    # An octave apart on one string is twelve frets of neck. The nearest layout
+    # is the *least bad* one, and calling that "positional" is the mislabelling
+    # issue #57 exists to stop.
+    with pytest.raises(ValueError, match=r"one position") as raised:
+        boxed(BASS6, [35, 47], (2,), "scales", AXIS_LIST)
+
+    message = str(raised.value)
+    assert message.startswith("scales:")
+    assert "12 frets" in message
+    assert AXIS_LIST in message
+
+
+def test_an_open_string_does_not_widen_the_position() -> None:
+    # A minor pentatonic from the open A string: frets 3, 5 and 7 are one
+    # position and the open root is sounded without the fretting hand at all.
+    places = boxed(BASS6, [33, 36, 38, 40, 43, 45], (2, 3), "scales", AXIS_LIST)
+    assert places == [(2, 0), (2, 3), (2, 5), (2, 7), (3, 5), (3, 7)]
+
+
+def test_the_position_is_the_profile_s_and_not_a_constant_of_this_module() -> None:
+    # A hand covers as many frets as the instrument's spacing allows, so the
+    # bound is read from the profile the exercise is laid out on.
+    narrow = replace(BASS6, position_span=1)
+    with pytest.raises(ValueError, match=r"against a position of 1"):
+        boxed(narrow, [33, 35, 37], (1, 2), "scales", AXIS_LIST)
 
 
 # --------------------------------------------------------------------------

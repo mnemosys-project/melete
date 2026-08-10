@@ -200,7 +200,10 @@ def test_two_octaves_repeat_the_chord_an_octave_up() -> None:
 
 
 def test_three_octaves_span_three_octaves() -> None:
-    spec = params(range_octaves=3, traversal="positional", string_set=(0, 1, 2, 3, 4, 5))
+    # Across the strings rather than positional: three octaves is 36 semitones
+    # and no hand covers that, so a `positional` three-octave arpeggio is a
+    # contradiction the family now refuses (issue #57).
+    spec = params(range_octaves=3, traversal="across_strings", string_set=(0, 1, 2, 3, 4, 5))
     played = pitches_of(generate(BASS6, spec))
     assert len(played) == 13
     assert played[-1] - played[0] == 36
@@ -471,6 +474,16 @@ def test_a_tone_below_the_string_set_raises() -> None:
         generate(BASS6, params(string_set=(5,)))
 
 
+def test_a_positional_arpeggio_wider_than_the_hand_raises() -> None:
+    # Two octaves of A major 7 over the low four strings puts the second octave
+    # up the D string, nine frets above the first. That is a shift, and calling
+    # it `positional` on the cover page is the mislabelling of issue #57.
+    spec = params(traversal="positional", range_octaves=2)
+    with pytest.raises(ValueError, match=r"positional traversal must fit one position") as raised:
+        generate(BASS6, spec)
+    assert "root, quality, inversion, range_octaves and string_set" in str(raised.value)
+
+
 def test_a_tone_no_string_in_the_set_can_reach_raises() -> None:
     with pytest.raises(ValueError, match=r"pitch 33 is unreachable on strings \[5\]"):
         generate(BASS6, params(traversal="positional", string_set=(5,)))
@@ -523,7 +536,11 @@ def test_invariant_holds_across_patterns_and_directions(pattern: str, direction:
 @pytest.mark.parametrize("traversal", ["positional", "across_strings"])
 @pytest.mark.parametrize("octaves", [1, 2])
 def test_invariant_holds_across_traversals_and_octaves(traversal: str, octaves: int) -> None:
-    score = generate(BASS6, params(traversal=traversal, range_octaves=octaves))
+    # Every string, because a two-octave arpeggio fits under one hand only when
+    # the set is wide enough to carry it: over the low four strings the second
+    # octave lies up the D string, which is a shift and not a position.
+    spec = params(traversal=traversal, range_octaves=octaves, string_set=(0, 1, 2, 3, 4, 5))
+    score = generate(BASS6, spec)
     assert_central_invariant(score)
     assert_spelling_sounds_correctly(score)
 

@@ -41,7 +41,13 @@ Phrygian will not appear on the same page.
 ## Validity is a gate, not a weight
 
 Each sampled specification is realized against the active instrument profile and
-checked against `max_notes` (§7, decision #17). An unrealizable draw is
+checked against `max_notes` (§7, decision #17) and `max_fret_span` (§10, issue
+#57). The two session bounds are one gate on purpose: a cycle too long to print
+and a reach no hand has are the same kind of failure — a specification that is
+legal and useless — and neither is quietly adjusted into something renderable.
+The fretboard is checked twice over, because the family checks that a note is
+*on* the neck and only this bound checks that a player can get to it. An
+unrealizable draw is
 resampled up to `MAX_ATTEMPTS` times; exhausting the budget is a loud error that
 quotes the family's own account of what could not be satisfied. It is never a
 silent fallback and never a clamp: a clamped exercise is a plausible-looking
@@ -99,15 +105,16 @@ from typing import TYPE_CHECKING, cast
 from melete import rhythm
 from melete.config import DEFAULT_HORIZON, RHYTHM
 from melete.families import REGISTRY
+from melete.instrument import hand_span
 from melete.score import Tuplet
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
     from random import Random
 
     from melete.config import AxisValue, Config
     from melete.instrument import InstrumentProfile
-    from melete.score import Voice
+    from melete.score import Note, Voice
 
 #: The lowest weight any candidate can carry (§9). A recently used value becomes
 #: unlikely, never impossible: at 0.05 a value drawn today still has one chance
@@ -146,6 +153,25 @@ FAMILY = "family"
 #: 500 attempts puts a pool half as good as the worst measured legitimate one —
 #: one valid draw in twenty — at a 7e-12 chance of a spurious failure, while a
 #: genuinely impossible pool costs 500 × 35µs ≈ 18ms before it says so.
+#:
+#: **Re-measured against §10's example pool once the playability bounds were in
+#: place** (issue #57), because a bound that rejects more draws is a bound that
+#: could have invalidated the sizing above. 20,000 draws per family on `bass6`:
+#:
+#: | pool                  | before | after |
+#: |-----------------------|--------|-------|
+#: | `chromatic`           | 0.437  | 0.437 |
+#: | `scales`              | 0.485  | 0.299 |
+#: | `arpeggios`           | 0.960  | 0.560 |
+#: | `intervals`           | 0.819  | 0.152 |
+#:
+#: `intervals` is the family the span bound costs most, and for a structural
+#: reason: its cycle is an octave of lower notes walked along one string, so it
+#: covers twelve frets before the upper note of a single pair is placed, and
+#: only the draws whose two strings sit close together survive. At 0.152 the
+#: budget is unchanged: 500 attempts leave a 1.6e-36 chance of a spurious
+#: failure, and the 1-in-20 pool the number was sized against is still three
+#: times worse than the worst family measured here. 500 stands.
 MAX_ATTEMPTS = 500
 
 _SEMITONES_PER_OCTAVE = 12
@@ -415,9 +441,17 @@ def _realized(params: dict[str, AxisValue], profile: InstrumentProfile) -> dict[
 # --------------------------------------------------------------------------
 
 
-def _note_count(voice: Voice) -> int:
-    """How many notes the exercise prints, tuplets counted by their contents."""
-    return sum(len(item.notes) if isinstance(item, Tuplet) else 1 for item in voice)
+def _notes(voice: Voice) -> Iterator[Note]:
+    """Every note the exercise prints, tuplets flattened into their contents.
+
+    §6 allows exactly one level of nesting, so this is one pass and never
+    recursion.
+    """
+    for item in voice:
+        if isinstance(item, Tuplet):
+            yield from item.notes
+        else:
+            yield item
 
 
 def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> str | None:
@@ -439,12 +473,22 @@ def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> s
     except ValueError as error:
         return str(error)
 
-    notes = _note_count(score.voice)
-    if notes > config.session.max_notes:
+    printed = list(_notes(score.voice))
+    if len(printed) > config.session.max_notes:
         return (
-            f"{family}: the cycle is {notes} notes, over the max_notes bound of "
+            f"{family}: the cycle is {len(printed)} notes, over the max_notes bound of "
             f"{config.session.max_notes}. range_octaves, pattern and direction multiply, so a "
             f"cycle is bounded rather than truncated (§7, decision #17)"
+        )
+
+    span = hand_span(note.fret for note in printed)
+    if span > config.session.max_fret_span:
+        return (
+            f"{family}: the exercise makes the hand travel {span} frets, over the "
+            f"max_fret_span bound of {config.session.max_fret_span}. A traversal, a string_set "
+            f"and a shift that spread an exercise further than that are a specification "
+            f"nothing can play in one sitting, so it is resampled rather than engraved "
+            f"(§9, issue #57)"
         )
     return None
 

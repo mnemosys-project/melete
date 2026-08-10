@@ -32,8 +32,14 @@ if TYPE_CHECKING:
 
 BASS6 = PROFILES["bass6"]
 
-#: The four lowest strings of a six-string bass: B E A D.
-STRING_SET: tuple[int, ...] = (0, 1, 2, 3)
+#: Every string of a six-string bass: B E A D G C.
+#:
+#: The whole set, and not the four lowest, because these parameters ask for a
+#: *positional* two-octave scale and two octaves only fit under one hand when
+#: the string set is wide enough to carry them (issue #57). Over B E A D the top
+#: octave lies on the D string alone, at frets 11 to 19, which is a shift and
+#: not a position — the family now says so rather than laying it out anyway.
+STRING_SET: tuple[int, ...] = (0, 1, 2, 3, 4, 5)
 
 #: A1 = 33. Two octaves of Ionian is fifteen degrees, which is the length the
 #: plan's worked example uses throughout.
@@ -173,14 +179,20 @@ def test_one_octave_closes_on_the_octave() -> None:
 
 
 def test_three_octaves_span_three_octaves() -> None:
-    score = generate(BASS6, params(range_octaves=3, string_set=(0, 1, 2, 3, 4, 5)))
+    # Three octaves is 36 semitones and no hand covers that, so the pitch
+    # content is asserted through the traversal that spreads it up the neck:
+    # one octave per string, over every second string from the low B.
+    score = generate(
+        BASS6,
+        params(root=24, traversal="octave_per_string", string_set=(0, 2, 4), range_octaves=3),
+    )
     assert len(score.voice) == 22
     assert pitches_of(score)[-1] - pitches_of(score)[0] == 36
 
 
 def test_stays_within_the_declared_string_set() -> None:
     score = generate(BASS6, PARAMS)
-    assert {note.string for note in notes_of(score)} <= {0, 1, 2, 3}
+    assert {note.string for note in notes_of(score)} <= set(STRING_SET)
 
 
 # --------------------------------------------------------------------------
@@ -346,7 +358,7 @@ def test_single_string_stays_on_one_string() -> None:
 @pytest.mark.parametrize(
     ("traversal", "string_set"),
     [
-        ("positional", (0, 1, 2, 3)),
+        ("positional", STRING_SET),
         ("three_note_per_string", (0, 1, 2, 3, 4)),
         ("octave_per_string", (2, 3)),
         ("single_string", (2,)),
@@ -377,12 +389,20 @@ def test_a_degree_keeps_its_place_however_often_the_pattern_visits_it(
 @pytest.mark.parametrize("root", range(24, 36))
 @pytest.mark.parametrize("scale_type", sorted(theory.SCALES))
 def test_invariant_holds_across_every_root_and_scale(root: int, scale_type: str) -> None:
-    score = generate(BASS6, params(root=root, scale_type=scale_type))
+    # Not every two-octave scale fits under one hand even across six strings —
+    # a positional draw that does not is refused rather than laid out (issue
+    # #57), and §9 resamples it. What is asserted here is that the two are the
+    # only outcomes: a Score that holds together, or a refusal that says why.
+    try:
+        score = generate(BASS6, params(root=root, scale_type=scale_type))
+    except ValueError as error:
+        assert "must fit one position" in str(error)
+        return
     assert_central_invariant(score)
     assert_spelling_sounds_correctly(score)
     assert score.key == theory.Key(root % 12, scale_type)
     assert len(score.voice) == len(theory.scale_pitches(root, scale_type, 2))
-    assert {note.string for note in notes_of(score)} <= {0, 1, 2, 3}
+    assert {note.string for note in notes_of(score)} <= set(STRING_SET)
 
 
 @pytest.mark.parametrize(("pattern", "direction"), list(product(PATTERNS, DIRECTIONS)))
@@ -395,9 +415,11 @@ def test_invariant_holds_across_patterns_and_directions(pattern: str, direction:
 @pytest.mark.parametrize("profile_name", sorted(PROFILES))
 def test_invariant_holds_across_the_profiles(profile_name: str) -> None:
     profile = PROFILES[profile_name]
-    # bass4 starts on E1 and has no low B, so the same box sits on strings 0-3
-    # of whatever the profile provides.
-    spec = params(root=33, string_set=tuple(range(min(4, len(profile.tuning)))))
+    # One octave from A1 across every string the profile has. A four-string
+    # bass carries a two-octave positional scale nowhere — fifteen semitones of
+    # open-string spread cannot cover twenty-four of scale under one hand — so
+    # the sweep asks each profile for the exercise it can actually play.
+    spec = params(root=33, range_octaves=1, string_set=tuple(range(len(profile.tuning))))
     assert_central_invariant(generate(profile, spec))
 
 
@@ -510,6 +532,33 @@ def test_a_degree_no_string_in_the_set_can_reach_raises() -> None:
     # traversal confined to it has nowhere to put the root.
     with pytest.raises(ValueError, match=r"pitch 33 is unreachable on strings \[5\]"):
         generate(BASS6, params(string_set=(5,)))
+
+
+def test_a_position_wider_than_the_hand_raises_rather_than_mislabelling() -> None:
+    """Issue #57, exercise 3 of `sessions/2026-08-10`, parameter for parameter.
+
+    G♭ major pentatonic, two octaves, `positional`, over the D, G and C
+    strings. It engraved as frets 9 to 23 under a cover page reading
+    "positional" — a fourteen-fret reach labelled as one hand position. Two
+    octaves of a pentatonic across three strings is not a positional exercise,
+    so the family says so and §9 resamples it.
+    """
+    spec = params(
+        root=42,
+        scale_type="major_pentatonic",
+        traversal="positional",
+        string_set=(2, 3, 4),
+        pattern="groups_of_4",
+        range_octaves=2,
+        direction="up",
+    )
+    with pytest.raises(ValueError, match=r"positional traversal must fit one position"):
+        generate(BASS6, spec)
+
+
+def test_a_position_that_does_fit_is_within_the_profile_s_span() -> None:
+    frets = [note.fret for note in notes_of(generate(BASS6, PARAMS)) if note.fret]
+    assert max(frets) - min(frets) <= BASS6.position_span
 
 
 def test_three_note_per_string_needs_one_string_per_group() -> None:

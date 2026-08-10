@@ -38,11 +38,14 @@ SPEC: dict[str, object] = {
     "span": 2,
 }
 
+#: Two octaves across *every* string: a positional two-octave scale needs the
+#: whole set to fit under one hand, and over the low four strings it does not
+#: (issue #57).
 SCALES_SPEC: dict[str, object] = {
     "root": 33,
     "scale_type": "dorian",
     "traversal": "positional",
-    "string_set": (0, 1, 2, 3),
+    "string_set": (0, 1, 2, 3, 4, 5),
     "pattern": "straight",
     "range_octaves": 2,
     "direction": "up",

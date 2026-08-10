@@ -20,6 +20,7 @@ import pytest
 from melete import rhythm
 from melete.config import RHYTHM, load_string
 from melete.families import REGISTRY, Family
+from melete.instrument import hand_span
 from melete.score import Tuplet
 from melete.selection import (
     FAMILY,
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
     from melete.config import AxisValue, Config
     from melete.families import Params
     from melete.instrument import InstrumentProfile
-    from melete.score import Score
+    from melete.score import Note, Score
 
 HORIZON = 14
 
@@ -160,11 +161,23 @@ def specs_of(picks: Sequence[tuple[ExerciseSpec, WeightInputs]]) -> list[Exercis
     return [spec for spec, _inputs in picks]
 
 
-def printed_notes(config: Config, spec: ExerciseSpec) -> int:
-    """How many notes the exercise engraves, realized as §4's pipeline does."""
+def printed_voice(config: Config, spec: ExerciseSpec) -> list[Note]:
+    """Every note the exercise engraves, realized as §4's pipeline does."""
     score = REGISTRY[spec.family].generate(config.instrument, spec.params)
-    voice = rhythm.apply(score, spec.params).voice
-    return sum(len(item.notes) if isinstance(item, Tuplet) else 1 for item in voice)
+    notes: list[Note] = []
+    for item in rhythm.apply(score, spec.params).voice:
+        notes.extend(item.notes if isinstance(item, Tuplet) else [item])
+    return notes
+
+
+def printed_notes(config: Config, spec: ExerciseSpec) -> int:
+    """How many notes the exercise engraves."""
+    return len(printed_voice(config, spec))
+
+
+def printed_span(config: Config, spec: ExerciseSpec) -> int:
+    """How far the fretting hand travels across the engraved exercise."""
+    return hand_span(note.fret for note in printed_voice(config, spec))
 
 
 #: One realizable `scales` specification, for the tests that need a history
@@ -284,11 +297,15 @@ def test_a_declared_shape_fills_the_slots_in_the_order_it_declares_them() -> Non
 
 def test_an_unset_shape_weights_the_families_instead() -> None:
     """Spec §9: leaving the shape unset makes `family` an axis like any other."""
-    config = every_family("[session]\ncount = 4\n")
+    # Eight slots rather than four: the recency weighting makes a family drawn
+    # this slot unlikely in the next one, never impossible (§9's floor), so
+    # "every family appears" is a property of a session long enough to show it
+    # and not of one exactly as long as the registry.
+    config = every_family("[session]\ncount = 8\n")
 
     picks = select(config, [], seeded(3))
 
-    assert sorted(spec.family for spec in specs_of(picks)) == sorted(REGISTRY)
+    assert {spec.family for spec in specs_of(picks)} == set(REGISTRY)
     assert all(FAMILY in inputs.distances for _spec, inputs in picks)
 
 
@@ -508,14 +525,69 @@ def test_an_over_constrained_pool_names_what_could_not_be_satisfied() -> None:
 
 
 def test_an_exercise_over_max_notes_is_resampled_and_then_reported() -> None:
-    """Spec §7, decision #17: a cycle is bounded, never truncated."""
-    config = scales_config(session=f"{shape(scales=1)}max_notes = 4\n")
+    """Spec §7, decision #17: a cycle is bounded, never truncated.
+
+    One octave, so that the *reported* failure is the length one: a two-octave
+    positional scale is refused for its span before its length is ever counted
+    (issue #57), and the message quotes the most common reason.
+    """
+    config = scales_config(session=f"{shape(scales=1)}max_notes = 4\n", octaves="[1]")
 
     with pytest.raises(SelectionError) as raised:
         select(config, [], seeded(24))
 
     assert "max_notes" in str(raised.value)
     assert "range_octaves, pattern and direction" in str(raised.value)
+
+
+def test_an_exercise_over_max_fret_span_is_resampled_and_then_reported() -> None:
+    """Issue #57: nothing bounded how far the fretting hand had to travel.
+
+    `intervals` walks a whole octave of lower notes along one string, so its
+    cycle covers twelve frets whatever else is drawn. A four-fret bound is
+    therefore a pool nothing in that family can satisfy, and §9 reports it by
+    name rather than engraving a reach no hand has.
+    """
+    config = make_config(
+        section("intervals", INTERVALS_AXES),
+        session=f"{shape(intervals=1)}max_fret_span = 4\n",
+    )
+
+    with pytest.raises(SelectionError) as raised:
+        select(config, [], seeded(29))
+
+    message = str(raised.value)
+    assert "max_fret_span" in message
+    assert "travel" in message
+    assert str(MAX_ATTEMPTS) in message
+
+
+def test_max_fret_span_is_a_gate_over_every_traversal() -> None:
+    # Not only `positional`: an exercise that is *labelled* as shifting still
+    # has a bound on how far it shifts, and every family passes through it.
+    config = every_family(
+        f"{shape(chromatic=1, scales=1, arpeggios=1, intervals=1)}max_fret_span = 12\n"
+    )
+
+    for spec in specs_of(select(config, [], seeded(30))):
+        assert printed_span(config, spec) <= 12
+
+
+def test_a_shifting_exercise_is_still_allowed_to_shift() -> None:
+    """The bound is loose enough for the traversals that are meant to move.
+
+    `chromatic` with `shift = fret_per_cycle` climbs the neck by design (§7),
+    and a bound that stopped it drawing would have bounded the wrong thing.
+    """
+    config = make_config(
+        section("chromatic", CHROMATIC_AXES, shifts='["fret_per_cycle"]'),
+        session=f"{shape(chromatic=3)}max_fret_span = 12\n",
+    )
+
+    picks = specs_of(select(config, [], seeded(31)))
+
+    assert len(picks) == 3
+    assert all(printed_span(config, spec) <= 12 for spec in picks)
 
 
 def test_max_notes_is_a_gate_rather_than_a_truncation() -> None:

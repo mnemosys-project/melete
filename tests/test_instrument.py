@@ -16,9 +16,11 @@ from itertools import pairwise
 import pytest
 
 from melete.instrument import (
+    DEFAULT_POSITION_SPAN,
     DEFAULT_PROFILE,
     PROFILES,
     InstrumentProfile,
+    hand_span,
     pitch_at,
     positions,
     resolve_profile,
@@ -138,6 +140,44 @@ def test_an_empty_tuning_is_rejected() -> None:
 def test_a_profile_without_frets_is_rejected() -> None:
     with pytest.raises(ValueError, match="fret_count"):
         InstrumentProfile("bad", (28, 33), 0)
+
+
+def test_every_built_in_profile_declares_a_position_span() -> None:
+    """Four fingers over four frets, with the one-fret stretch that is common."""
+    assert DEFAULT_POSITION_SPAN == 4
+    assert {profile.position_span for profile in PROFILES.values()} == {DEFAULT_POSITION_SPAN}
+
+
+def test_a_profile_may_declare_a_wider_hand() -> None:
+    wide = InstrumentProfile("wide", (28, 33, 38, 43), 20, position_span=6)
+    assert wide.position_span == 6
+
+
+def test_a_position_narrower_than_two_frets_is_rejected() -> None:
+    with pytest.raises(ValueError, match="position_span"):
+        InstrumentProfile("bad", (28, 33), 20, position_span=0)
+
+
+# --------------------------------------------------------------------------
+# hand_span: how far the fretting hand must reach
+# --------------------------------------------------------------------------
+
+
+def test_the_hand_span_is_the_reach_between_the_outermost_fretted_notes() -> None:
+    assert hand_span([5, 7, 9]) == 4
+
+
+def test_an_open_string_neither_extends_nor_constrains_the_reach() -> None:
+    """It is sounded without the fretting hand, so it is not part of the reach."""
+    assert hand_span([0, 5, 7, 9]) == 4
+
+
+def test_a_run_of_open_strings_alone_asks_nothing_of_the_hand() -> None:
+    assert hand_span([0, 0, 0]) == 0
+
+
+def test_one_fretted_note_is_no_reach_at_all() -> None:
+    assert hand_span([12]) == 0
 
 
 # --------------------------------------------------------------------------
