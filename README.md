@@ -16,7 +16,8 @@ Early development
 
 ## Overview
 
-TODO
+See [docs/design.md](docs/design.md) for what melete is and links to the
+authoritative specification.
 
 ## Getting Started
 
