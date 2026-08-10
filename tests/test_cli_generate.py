@@ -24,6 +24,7 @@ spec §14 assigns to this module. It runs the moment LilyPond is on PATH.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tomllib
 from dataclasses import dataclass
@@ -696,7 +697,13 @@ def test_end_to_end_produces_a_practice_pdf(
 
     pdf = (directory / "practice.pdf").read_bytes()
     assert pdf.startswith(b"%PDF")
-    assert pdf.count(b"/Type /Page") >= 2
+    # Count leaf page objects, not the one page-tree root. LilyPond 2.24 writes
+    # each leaf as `/Type/Page` (no space) and the root as `/Type /Pages`, so a
+    # literal count of `/Type /Page` sees only the root and reports a single
+    # page for a document that has several. Matching either spacing while the
+    # `\b` after `Page` excludes `/Pages` counts the leaves the cover page plus
+    # five exercises force.
+    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) >= 2
 
 
 @pytest.mark.integration
