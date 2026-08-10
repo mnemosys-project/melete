@@ -110,10 +110,10 @@ _FAMILY = "scales"
 #: declares it and the selector never samples it (decision #20); configuration
 #: overrides it per family through `[pool.scales] tempo`.
 #:
-#: §7's table says 80-100. That reading of "the reference range in §12's
-#: cover-page example" is too slow for the material: three notes per string in
-#: triplet eighths is practised at 120-140, and a range that tops out at 100
-#: would print a tempo nobody works at.
+#: Three notes per string in triplet eighths is practised near the top of this
+#: range and the bottom of it is a warm-up, which is why the original 80-100 —
+#: reasoned from categories rather than from an instrument — printed a tempo
+#: nobody works at. §7 carries that reasoning; the number is declared here.
 DEFAULT_TEMPO_RANGE = (80, 140)
 
 #: The un-modified reading: one note per beat in common time. `rhythm.py` (§8)

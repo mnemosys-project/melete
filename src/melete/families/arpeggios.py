@@ -128,10 +128,11 @@ _FAMILY = "arpeggios"
 #: declares it and the selector never samples it (decision #20); configuration
 #: overrides it per family through `[pool.arpeggios] tempo`.
 #:
-#: §7's table says 80-100 in places. That set of numbers was reasoned from
-#: categories rather than from an instrument and came out too slow to be
-#: useful: 80-100 is where the author warms up, not where he practices. The
-#: demand here is comparable to `scales`, so the range is the same one.
+#: The demand here is comparable to `scales`, so the range is the same one.
+#: The original 80-100 was reasoned from categories rather than from an
+#: instrument and came out too slow to be useful — it is where the author warms
+#: up, not where he practices. §7 carries that reasoning; the number is
+#: declared here.
 DEFAULT_TEMPO_RANGE = (80, 140)
 
 #: The un-modified reading: one note per beat in common time. `rhythm.py` (§8)

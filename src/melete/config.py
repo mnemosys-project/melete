@@ -20,10 +20,16 @@ never keeps one of its own: identifier axes are validated against
 `InstrumentProfile`. A hardcoded list here would be a second source of truth
 and would drift from the registry the families dispatch on.
 
-Two vocabularies are genuinely local, and both are stated as such below:
-`STAVES` (§10's output switch, which is not a sampled axis) and `DEFAULT_TEMPO`
-(§7's per-family ranges, which belong to the family modules that do not exist
-yet — see the note on that constant).
+One vocabulary is genuinely local and is stated as such below: `STAVES`, §10's
+output switch, which is not a sampled axis and therefore has nowhere else to
+live. Everything else this module needs to name is read from whoever owns it —
+identifiers from `vocabulary`, ranges from the `InstrumentProfile`, and the
+per-family tempo defaults from `families.REGISTRY`, because §7 assigns the
+tempo range to the family (decision #20).
+
+Importing `families` is safe in exactly one direction: no family imports
+`config`, and none may, since a family is a pure `params -> Score` function
+that knows nothing about how its parameters were configured.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ from itertools import permutations as _orderings
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from melete import vocabulary
+from melete.families import REGISTRY
 from melete.instrument import (
     DEFAULT_PROFILE,
     PROFILES,
@@ -55,21 +62,6 @@ AxisValue = str | int | tuple[int, ...]
 #: absent from `vocabulary`, which enumerates the §7 and §8 parameter axes: it
 #: is an output setting, so this module owns it and this is its only spelling.
 STAVES: tuple[str, ...] = ("both", "tab", "notation")
-
-#: §7's per-family tempo ranges. Tempo is a per-family default overridable in
-#: configuration and is never a sampled axis (decision #20).
-#:
-#: **This table is on loan.** §7 assigns the default to the *family*, and it
-#: lives here only because `families/` does not exist yet (tasks B5–B8). When
-#: it does, each family should declare its own range and this table should
-#: become a lookup over the family registry rather than a literal — otherwise
-#: it is a second source of truth for a value the family owns.
-DEFAULT_TEMPO: dict[str, tuple[int, int]] = {
-    "chromatic": (60, 80),
-    "scales": (80, 100),
-    "arpeggios": (80, 100),
-    "intervals": (70, 90),
-}
 
 #: §10's notation convention (decision #27, superseding #9). Both settings
 #: spell every note correctly for the key; they differ only in whether the
@@ -399,6 +391,16 @@ _NOTE_VALUE_PATTERN = _registry("note_value_patterns", "note_value_pattern")
 #: `vocabulary` enumerates — a test asserts that, so a family added to the
 #: registry without a pool here fails loudly rather than silently losing its
 #: tuning surface.
+#:
+#: The axes of each entry are the axes its family reads, and a second test
+#: asserts *that* against `families.REGISTRY[...].axes` rather than against a
+#: list of its own. What lives here and cannot live in the family is the
+#: configuration surface of an axis — its plural TOML key, how a written value
+#: is read, and what set it is accepted against — so this table is a mapping
+#: from the family's axes onto that surface, never a second opinion about which
+#: axes the family has. It was a second opinion once: `intervals` was missing
+#: `root` and `scale_type` here, which made every specification drawn from this
+#: pool one the family would reject.
 _AXES_BY_FAMILY: dict[str, tuple[_Axis, ...]] = {
     "chromatic": (
         _PERMUTATION,
@@ -420,7 +422,19 @@ _AXES_BY_FAMILY: dict[str, tuple[_Axis, ...]] = {
         _OCTAVES,
         _DIRECTION,
     ),
-    "intervals": (_INTERVAL, _CONTEXT, _STRING_SKIP, _STRING_SET, _DIRECTION, _PATTERN),
+    # `root` is read in both of §7's contexts and `scale_type` only in the
+    # diatonic one, which is what "diatonic within root + scale" means: the
+    # column names two axes rather than one value.
+    "intervals": (
+        _INTERVAL,
+        _CONTEXT,
+        _ROOT,
+        _SCALE_TYPE,
+        _STRING_SKIP,
+        _STRING_SET,
+        _DIRECTION,
+        _PATTERN,
+    ),
 }
 
 #: §8's four axes. Rhythm is one modifier over every family, so it has one
@@ -611,7 +625,9 @@ def _pool(raw: object, profile: InstrumentProfile) -> tuple[dict[str, FamilyPool
         table = _table(where, section.get(family, {}))
         _reject_unknown(where, table, [*(axis.key for axis in axes), "tempo"])
         tempo = (
-            _tempo(f"{where}.tempo", table["tempo"]) if "tempo" in table else DEFAULT_TEMPO[family]
+            _tempo(f"{where}.tempo", table["tempo"])
+            if "tempo" in table
+            else REGISTRY[family].default_tempo_range
         )
         pools[family] = FamilyPool(
             family=family,

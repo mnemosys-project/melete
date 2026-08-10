@@ -25,12 +25,12 @@ from melete import vocabulary
 from melete.config import (
     _AXES_BY_FAMILY,
     _RHYTHM_AXES,
-    DEFAULT_TEMPO,
     STAVES,
     ConfigError,
     load,
     load_string,
 )
+from melete.families import REGISTRY
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -85,7 +85,7 @@ def test_family_tempo_override() -> None:
 
 
 def test_family_tempo_defaults_when_unset() -> None:
-    assert load_string("").pool["chromatic"].tempo == (60, 80)
+    assert load_string("").pool["chromatic"].tempo == REGISTRY["chromatic"].default_tempo_range
 
 
 # --------------------------------------------------------------------------
@@ -428,17 +428,21 @@ def test_shape_counts_must_be_positive_integers() -> None:
 
 
 def test_every_family_has_a_default_tempo_range() -> None:
+    # Read through the registry, never against a literal: §7 assigns the range
+    # to the family (decision #20), and the numbers themselves are asserted
+    # against the spec table once, in the family registry's own tests.
     cfg = load_string("")
-    assert {family: pool.tempo for family, pool in cfg.pool.items()} == DEFAULT_TEMPO
-
-
-def test_the_spec_tempo_defaults_are_the_ones_in_section_7() -> None:
-    assert DEFAULT_TEMPO == {
-        "chromatic": (60, 80),
-        "scales": (80, 100),
-        "arpeggios": (80, 100),
-        "intervals": (70, 90),
+    assert {family: pool.tempo for family, pool in cfg.pool.items()} == {
+        family: entry.default_tempo_range for family, entry in REGISTRY.items()
     }
+
+
+def test_an_override_of_one_family_leaves_the_others_at_their_own_default() -> None:
+    # The override is per family, so it must not be readable as a global.
+    cfg = load_string("[pool.scales]\ntempo = [40, 50]")
+    assert cfg.pool["scales"].tempo == (40, 50)
+    assert cfg.pool["chromatic"].tempo == REGISTRY["chromatic"].default_tempo_range
+    assert cfg.pool["intervals"].tempo == REGISTRY["intervals"].default_tempo_range
 
 
 def test_tempo_must_be_a_list() -> None:
@@ -716,8 +720,8 @@ def test_every_arpeggio_axis_loads() -> None:
 def test_every_interval_axis_loads() -> None:
     cfg = load_string(
         "[pool.intervals]\n"
-        'intervals = "all"\ncontexts = "all"\nstring_skips = "all"\n'
-        'string_sets = [[0, 1]]\ndirections = "all"\npatterns = "all"\n'
+        'intervals = "all"\ncontexts = "all"\nroots = "all"\nscale_types = "all"\n'
+        'string_skips = "all"\nstring_sets = [[0, 1]]\ndirections = "all"\npatterns = "all"\n'
     )
     assert set(cfg.pool["intervals"].values) == {axis.name for axis in _AXES_BY_FAMILY["intervals"]}
 
@@ -731,8 +735,17 @@ def test_pools_are_declared_for_exactly_the_registry_families() -> None:
     assert set(_AXES_BY_FAMILY) == set(vocabulary.accepted("family"))
 
 
-def test_tempo_defaults_cover_exactly_the_registry_families() -> None:
-    assert set(DEFAULT_TEMPO) == set(vocabulary.accepted("family"))
+def test_the_pool_samples_exactly_the_axes_each_family_requires() -> None:
+    # The requirement is *derived* from the family, never restated here: the
+    # family module owns the list of axes it reads, and a copy in this test
+    # would be a third spelling of it that could agree with neither.
+    #
+    # This is the assertion `intervals` failed before this change — its pool
+    # omitted `root` and `scale_type`, so every specification the selector
+    # could draw from it was missing an axis the family requires, and the
+    # failure surfaced in the selector rather than here.
+    for family, entry in REGISTRY.items():
+        assert {axis.name for axis in _AXES_BY_FAMILY[family]} == set(entry.axes), family
 
 
 def test_no_axis_key_is_declared_twice_within_a_family() -> None:

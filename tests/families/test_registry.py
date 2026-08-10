@@ -7,6 +7,12 @@ function that returns a Score. With task B8 all four of §7's families are
 registered, so the vocabulary agreement is an equality rather than a subset: a
 family enumerated for configuration but missing from the registry is one
 `selection` could draw and nothing could realize.
+
+The entries are `Family` records rather than bare functions, so the tempo range
+and the axis list each family declares reach a caller through the same lookup
+the generate function does. Two tests below are what keep that lookup honest:
+one asserts the record really is the family module's own declaration, and one
+asserts those declarations are §7's revised tempo table.
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ from __future__ import annotations
 from conftest import assert_central_invariant, assert_spelling_sounds_correctly
 
 from melete import vocabulary
-from melete.families import REGISTRY
+from melete.families import REGISTRY, arpeggios, chromatic, intervals, scales
 from melete.families.arpeggios import generate as arpeggios_generate
 from melete.families.chromatic import generate as chromatic_generate
 from melete.families.intervals import generate as intervals_generate
@@ -66,10 +72,37 @@ INTERVALS_SPEC: dict[str, object] = {
 
 
 def test_the_registry_maps_an_identifier_to_the_family_function() -> None:
-    assert REGISTRY["chromatic"] is chromatic_generate
-    assert REGISTRY["scales"] is scales_generate
-    assert REGISTRY["arpeggios"] is arpeggios_generate
-    assert REGISTRY["intervals"] is intervals_generate
+    assert REGISTRY["chromatic"].generate is chromatic_generate
+    assert REGISTRY["scales"].generate is scales_generate
+    assert REGISTRY["arpeggios"].generate is arpeggios_generate
+    assert REGISTRY["intervals"].generate is intervals_generate
+
+
+def test_the_registry_carries_each_familys_own_declarations() -> None:
+    # The record is a lookup over the family module, never a copy of it: a
+    # tempo range or an axis list restated here would be exactly the second
+    # source of truth `config.DEFAULT_TEMPO` was.
+    for identifier, module in (
+        ("chromatic", chromatic),
+        ("scales", scales),
+        ("arpeggios", arpeggios),
+        ("intervals", intervals),
+    ):
+        entry = REGISTRY[identifier]
+        assert entry.axes is module.AXES, identifier
+        assert entry.default_tempo_range is module.DEFAULT_TEMPO_RANGE, identifier
+
+
+def test_the_default_tempo_ranges_are_the_ones_in_section_7() -> None:
+    # §7's revised table, restated once and deliberately: this is the assertion
+    # that fails when the spec is revised and the code is not, or the reverse.
+    # Every other reader of a tempo range reaches it through this registry.
+    assert {identifier: entry.default_tempo_range for identifier, entry in REGISTRY.items()} == {
+        "chromatic": (60, 120),
+        "scales": (80, 140),
+        "arpeggios": (80, 140),
+        "intervals": (70, 130),
+    }
 
 
 def test_every_registered_family_is_in_the_vocabulary() -> None:
@@ -82,7 +115,7 @@ def test_every_registered_family_is_in_the_vocabulary() -> None:
 
 
 def test_a_family_can_be_generated_through_the_registry() -> None:
-    score = REGISTRY["chromatic"](PROFILES["bass5"], SPEC)
+    score = REGISTRY["chromatic"].generate(PROFILES["bass5"], SPEC)
     assert isinstance(score, Score)
     assert_central_invariant(score)
 
@@ -98,7 +131,24 @@ def test_every_family_answers_the_same_call() -> None:
         ("intervals", INTERVALS_SPEC),
     )
     for identifier, spec in families:
-        score = REGISTRY[identifier](PROFILES["bass6"], spec)
+        score = REGISTRY[identifier].generate(PROFILES["bass6"], spec)
         assert isinstance(score, Score)
         assert_central_invariant(score)
         assert_spelling_sounds_correctly(score)
+        # The tempo the family declares is the tempo it engraves with, so a
+        # caller reading the registry sees what the sheet will say.
+        assert score.tempo_range == REGISTRY[identifier].default_tempo_range
+
+
+def test_a_specification_names_every_axis_the_registry_advertises() -> None:
+    # The registry's `axes` is what `config` builds a pool section from, so a
+    # specification satisfying the family must be exactly that set of keys.
+    # Anything less is a family that cannot be realized from its own pool.
+    specifications = (
+        ("chromatic", SPEC),
+        ("scales", SCALES_SPEC),
+        ("arpeggios", ARPEGGIOS_SPEC),
+        ("intervals", INTERVALS_SPEC),
+    )
+    for identifier, spec in specifications:
+        assert set(spec) == set(REGISTRY[identifier].axes), identifier
