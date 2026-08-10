@@ -71,6 +71,26 @@ DEFAULT_TEMPO: dict[str, tuple[int, int]] = {
     "intervals": (70, 90),
 }
 
+#: §10's notation convention (decision #27, superseding #9). Both settings
+#: spell every note correctly for the key; they differ only in whether the
+#: signature is printed.
+#:
+#: * `True`, the default: print the signature — `\key fis \dorian` — and spell
+#:   diatonically. That is the fewest accidentals, it is what published
+#:   practice material looks like, and the primary reader of the notation
+#:   staff is an instructor.
+#: * `False`: print no signature, asserting no tonal centre, but still spell
+#:   correctly — F♯ G♯ A B C♯ D♯ E, with an explicit accidental on every
+#:   altered tone.
+#:
+#: Decision #9 defaulted this off, and the reasoning about *signatures* was
+#: sound; what was wrong was that it conflated printing a signature with
+#: spelling a note. Implemented as "notate in C with explicit accidentals", it
+#: engraved F♯ Dorian as G♭ A♭ B𝄫 C♭ D♭ E𝄫 F♭ — a different key, not a neutral
+#: one. `False` is that decision's original intent, finally implemented as a
+#: presentation choice rather than as a broken spelling.
+DEFAULT_KEY_SIGNATURES = True
+
 DEFAULT_COUNT = 5
 DEFAULT_HORIZON = 14
 DEFAULT_MAX_NOTES = 96
@@ -106,7 +126,11 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class OutputConfig:
-    """§10's `[output]`: what gets engraved."""
+    """§10's `[output]`: what gets engraved.
+
+    `key_signatures` selects between two correct notations rather than
+    between a correct one and a neutral one — see `DEFAULT_KEY_SIGNATURES`.
+    """
 
     staves: str
     key_signatures: bool
@@ -532,7 +556,10 @@ def _output(raw: object) -> OutputConfig:
 
     return OutputConfig(
         staves=staves,
-        key_signatures=_boolean("output.key_signatures", section.get("key_signatures", False)),
+        key_signatures=_boolean(
+            "output.key_signatures",
+            section.get("key_signatures", DEFAULT_KEY_SIGNATURES),
+        ),
     )
 
 

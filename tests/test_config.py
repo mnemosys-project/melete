@@ -109,7 +109,7 @@ def test_empty_config_defaults_to_bass6() -> None:
 def test_output_defaults() -> None:
     cfg = load_string("")
     assert cfg.output.staves == "both"
-    assert cfg.output.key_signatures is False
+    assert cfg.output.key_signatures is True
 
 
 def test_every_family_has_a_pool_even_when_unconfigured() -> None:
@@ -123,7 +123,7 @@ def test_the_spec_example_config_loads() -> None:
     # §10's worked example, verbatim apart from the comments.
     cfg = load_string(
         '[instrument]\nprofile = "bass6"\n'
-        '\n[output]\nstaves = "both"\nkey_signatures = false\n'
+        '\n[output]\nstaves = "both"\nkey_signatures = true\n'
         "\n[session]\ncount = 5\nhorizon = 14\nmax_notes = 96\n"
         "shape = { chromatic = 1, scales = 2, arpeggios = 1, intervals = 1 }\n"
         '\n[pool.scales]\nroots = "all"\n'
@@ -310,12 +310,26 @@ def test_staves_must_be_a_string() -> None:
 
 
 def test_key_signatures_must_be_a_boolean() -> None:
-    with pytest.raises(ConfigError) as exc:
+    with pytest.raises(ConfigError, match="key_signatures") as exc:
         load_string('[output]\nkey_signatures = "yes"')
     assert "output.key_signatures" in str(exc.value)
 
 
-def test_key_signatures_can_be_enabled() -> None:
+def test_key_signatures_defaults_to_true() -> None:
+    # §10 as amended, decision #27 superseding #9: the default prints the
+    # signature and spells diatonically, because that is what published
+    # practice material looks like and the reader is an instructor.
+    assert load_string("").output.key_signatures is True
+
+
+def test_key_signatures_can_be_turned_off() -> None:
+    # Off is decision #9's original intent, implemented properly: no asserted
+    # tonal centre, but still spelled correctly, with an explicit accidental
+    # on every altered tone.
+    assert load_string("[output]\nkey_signatures = false").output.key_signatures is False
+
+
+def test_key_signatures_can_be_stated_explicitly() -> None:
     assert load_string("[output]\nkey_signatures = true").output.key_signatures is True
 
 
