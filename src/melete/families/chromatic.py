@@ -59,6 +59,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import vocabulary
+from melete.families._shared import Parameters, there_and_back
 from melete.instrument import pitch_at
 from melete.score import FINGERS, Note, Score
 
@@ -67,6 +68,10 @@ if TYPE_CHECKING:
 
     from melete.instrument import InstrumentProfile
     from melete.score import Voice
+
+#: This family's identifier in `vocabulary.AXES["family"]`, and the prefix on
+#: every error this module raises (§13). Written once so the two cannot drift.
+_FAMILY = "chromatic"
 
 #: Spec §7's tempo range for this family, in beats per minute. The *family*
 #: declares it and the selector never samples it (decision #20); configuration
@@ -109,38 +114,12 @@ _STRING_STEP = {"adjacent": 1, "skip_1": 2, _SINGLE_STRING: 0}
 _FRET_STEP = {_NO_SHIFT: 0, "fret_per_cycle": 1, "position_per_cycle": POSITION_FRETS}
 
 
-def _parameter(params: Mapping[str, object], axis: str) -> object:
-    """One parameter, or an error naming the axis and the full set (§13)."""
-    if axis not in params:
-        msg = f"chromatic: parameter {axis!r} is required; the family's axes are {list(AXES)}"
-        raise ValueError(msg)
-    return params[axis]
-
-
-def _identifier(params: Mapping[str, object], axis: str) -> str:
-    """One registry identifier, checked against `vocabulary` and nothing else."""
-    value = _parameter(params, axis)
-    if not isinstance(value, str) or value not in vocabulary.AXES[axis]:
-        msg = f"chromatic: unknown {axis} {value!r}; accepted: {vocabulary.accepted(axis)}"
-        raise ValueError(msg)
-    return value
-
-
-def _integer(params: Mapping[str, object], axis: str) -> int:
-    """One range-like axis. `bool` is rejected: `True` is not fret 1."""
-    value = _parameter(params, axis)
-    if isinstance(value, bool) or not isinstance(value, int):
-        msg = f"chromatic: {axis} must be an integer, got {value!r}"
-        raise ValueError(msg)
-    return value
-
-
-def _permutation(params: Mapping[str, object]) -> tuple[int, ...]:
+def _permutation(read: Parameters) -> tuple[int, ...]:
     """One ordering of the four fretting fingers."""
-    value = _parameter(params, "permutation")
+    value = read.value("permutation")
     if not isinstance(value, list | tuple) or sorted(value) != list(FINGERS):
         msg = (
-            f"chromatic: permutation {value!r} is not an ordering of the fretting "
+            f"{_FAMILY}: permutation {value!r} is not an ordering of the fretting "
             f"fingers {list(FINGERS)}; the permutation is the exercise, so a partial "
             f"or repeated ordering is a different exercise rather than a shorter one"
         )
@@ -149,27 +128,30 @@ def _permutation(params: Mapping[str, object]) -> tuple[int, ...]:
 
 
 def _strings(direction: str, traversal: str, start_string: int, span: int) -> list[int]:
-    """The string each permutation cycle is played on, in playing order."""
+    """The string each permutation cycle is played on, in playing order.
+
+    `down` walks *downward from* `start_string` rather than reversing the ascent,
+    which is why this family orders its own strings instead of handing the walk
+    to `_shared.apply_direction`. The exercise begins on the string it was
+    specified to begin on, so descending covers a different set of strings and is
+    not the ascending pass played backwards. Only the turnaround is shared, and
+    it is shared exactly — `scales` does the same thing to its degrees.
+    """
     if span < 1:
-        msg = f"chromatic: span must cover at least one string, got {span}"
+        msg = f"{_FAMILY}: span must cover at least one string, got {span}"
         raise ValueError(msg)
 
     if traversal == _SINGLE_STRING and span != 1:
         msg = (
-            f"chromatic: string_traversal {traversal!r} covers one string, so span must "
+            f"{_FAMILY}: string_traversal {traversal!r} covers one string, so span must "
             f"be 1, got {span}. Ignoring the span would engrave a narrower exercise than "
             f"the one specified and replaying the string would repeat the same four notes"
         )
         raise ValueError(msg)
 
-    step = _STRING_STEP[traversal]
-    ascending = [start_string + cycle * step for cycle in range(span)]
-    if direction == "up":
-        return ascending
-    if direction == "down":
-        return [start_string - cycle * step for cycle in range(span)]
-    # up_down: back down without replaying the turnaround string.
-    return ascending + ascending[-2::-1]
+    step = -_STRING_STEP[traversal] if direction == "down" else _STRING_STEP[traversal]
+    walk = [start_string + cycle * step for cycle in range(span)]
+    return there_and_back(walk) if direction == "up_down" else walk
 
 
 def _title(permutation: tuple[int, ...], traversal: str, direction: str, shift: str) -> str:
@@ -193,13 +175,14 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
     """
-    permutation = _permutation(params)
-    start_string = _integer(params, "start_string")
-    start_fret = _integer(params, "start_fret")
-    span = _integer(params, "span")
-    direction = _identifier(params, "direction")
-    traversal = _identifier(params, "string_traversal")
-    shift = _identifier(params, "shift")
+    read = Parameters(_FAMILY, AXES, params)
+    permutation = _permutation(read)
+    start_string = read.integer("start_string")
+    start_fret = read.integer("start_fret")
+    span = read.integer("span")
+    direction = read.identifier("direction")
+    traversal = read.identifier("string_traversal")
+    shift = read.identifier("shift")
 
     fret_step = _FRET_STEP[shift]
     strings = _strings(direction, traversal, start_string, span)
@@ -213,7 +196,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
     low_string, high_string = min(strings), max(strings)
     if low_string < 0 or high_string > last_string:
         msg = (
-            f"chromatic: strings {low_string} to {high_string} are off profile "
+            f"{_FAMILY}: strings {low_string} to {high_string} are off profile "
             f"{profile.name!r}, which has strings 0 to {last_string}: "
             f"start_string={start_string} with span={span}, string_traversal={traversal!r} "
             f"and direction={direction!r} cannot be realized on this instrument"
@@ -224,7 +207,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
     low_fret, high_fret = min(frets), max(frets)
     if low_fret < 0 or high_fret > profile.fret_count:
         msg = (
-            f"chromatic: frets {low_fret} to {high_fret} are off profile {profile.name!r}, "
+            f"{_FAMILY}: frets {low_fret} to {high_fret} are off profile {profile.name!r}, "
             f"which has frets 0 to {profile.fret_count}: start_fret={start_fret} with "
             f"permutation {permutation}, span={span} and shift={shift!r} cannot be "
             f"realized on this instrument"

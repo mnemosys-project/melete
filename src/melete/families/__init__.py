@@ -4,7 +4,9 @@ A family is `generate(profile, params) -> Score` and nothing else. It has no
 I/O, no randomness and no clock: the selector (§9) chooses the parameters and
 the family realizes them, which is what makes a sheet reproducible from its
 session log. Nothing here imports `selection` or `config`, and no family
-imports another.
+imports another. `_shared` is the exception that proves it: it is not a family,
+it decides nothing about what an exercise is, and it holds only the parameter
+reading and `direction` ordering every family would otherwise write out again.
 
 `REGISTRY` is the dispatch table those callers use. Keying it on the same
 identifiers as `vocabulary.AXES["family"]` is what lets `config` validate a
