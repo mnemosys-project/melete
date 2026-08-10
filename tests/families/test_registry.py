@@ -15,6 +15,7 @@ from conftest import assert_central_invariant
 from melete import vocabulary
 from melete.families import REGISTRY
 from melete.families.chromatic import generate as chromatic_generate
+from melete.families.scales import generate as scales_generate
 from melete.instrument import PROFILES
 from melete.score import Score
 
@@ -28,9 +29,20 @@ SPEC: dict[str, object] = {
     "span": 2,
 }
 
+SCALES_SPEC: dict[str, object] = {
+    "root": 33,
+    "scale_type": "dorian",
+    "traversal": "positional",
+    "string_set": (0, 1, 2, 3),
+    "pattern": "straight",
+    "range_octaves": 2,
+    "direction": "up",
+}
+
 
 def test_the_registry_maps_an_identifier_to_the_family_function() -> None:
     assert REGISTRY["chromatic"] is chromatic_generate
+    assert REGISTRY["scales"] is scales_generate
 
 
 def test_every_registered_family_is_in_the_vocabulary() -> None:
@@ -43,3 +55,13 @@ def test_a_family_can_be_generated_through_the_registry() -> None:
     score = REGISTRY["chromatic"](PROFILES["bass5"], SPEC)
     assert isinstance(score, Score)
     assert_central_invariant(score)
+
+
+def test_every_family_answers_the_same_call() -> None:
+    # The contract is `generate(profile, params) -> Score` and nothing else, so
+    # a caller dispatching through the registry never learns which family it
+    # reached.
+    for identifier, spec in (("chromatic", SPEC), ("scales", SCALES_SPEC)):
+        score = REGISTRY[identifier](PROFILES["bass6"], spec)
+        assert isinstance(score, Score)
+        assert_central_invariant(score)
