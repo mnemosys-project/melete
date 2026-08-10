@@ -1,0 +1,42 @@
+"""The exercise families (spec §7): one pure function per family.
+
+A family is `generate(profile, params) -> Score` and nothing else. It has no
+I/O, no randomness and no clock: the selector (§9) chooses the parameters and
+the family realizes them, which is what makes a sheet reproducible from its
+session log. Nothing here imports `selection` or `config`, and no family
+imports another.
+
+`REGISTRY` is the dispatch table those callers use. Keying it on the same
+identifiers as `vocabulary.AXES["family"]` is what lets `config` validate a
+pool section, `selection` draw a family, and `cli` list them without any of
+the three keeping a private list of families that could drift from this one.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from melete.families import chromatic
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from melete.instrument import InstrumentProfile
+    from melete.score import Score
+
+#: One exercise specification: §7 axis identifiers and range values, plus
+#: whatever §8's rhythm modifier travels alongside them. Deliberately loose —
+#: each family validates the axes it reads, against `vocabulary` and against
+#: the active profile.
+type Params = Mapping[str, object]
+
+#: The family contract. Every entry in `REGISTRY` has this shape.
+type Generate = Callable[[InstrumentProfile, Params], Score]
+
+#: Family identifier -> the pure function that realizes it. Tasks B6-B8 add
+#: `scales`, `arpeggios` and `intervals`.
+REGISTRY: dict[str, Generate] = {
+    "chromatic": chromatic.generate,
+}
+
+__all__ = ["REGISTRY", "Generate", "Params"]
