@@ -7,21 +7,27 @@ primary-language = "python"
 
 [ci]
 versions = ["3.14"]
-# Disabled until integration tests are supported by the tooling and the
-# container carries LilyPond. See melete#23.
+# The dedicated CI integration job stays off for now. See melete#23.
 #
-# This does not remove any test. Spec section 14 specifies two tests that
-# invoke the LilyPond binary - the render integration test and the CLI
-# end-to-end smoke test - and both will be written and both run locally.
-# What is switched off is CI's claim to run a suite it has no way to run:
-# setting this true adds `test / integration / 3.14` to the branch ruleset's
-# required checks, but the generated workflow never emits that context, so
-# the branch becomes unmergeable with every check green.
+# This does not remove or skip any test. Spec section 14 specifies two tests
+# that invoke the LilyPond binary - the render integration test and the CLI
+# end-to-end smoke test. The render test already exists and, now that the
+# container carries the binary, runs and passes in the ordinary pytest run;
+# the smoke test is not written yet.
 #
-# Two preconditions for turning this back on:
-#   vergil-tooling#2720 - the context must actually be emitted
-#   vergil-tooling#2718 - the container must carry the binary
+# What this flag governs is only CI's dedicated integration job: setting it
+# true adds `test / integration / 3.14` to the branch ruleset's required
+# checks. Both former preconditions for that are now met - the status-context
+# is emitted (vergil-tooling#2720) and the container carries the binary
+# (vergil-tooling#2718, via the [container].system-packages declaration
+# below). Turning it on is nonetheless deferred to the integration-test
+# follow-on that writes the remaining smoke test, so the job lands with the
+# full suite it claims rather than half of one.
 integration-tests = false
+
+[container]
+env-prefixes = []
+system-packages = ["lilypond"]
 
 [publish]
 release = true

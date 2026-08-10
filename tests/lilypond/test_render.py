@@ -22,6 +22,7 @@ runs whenever the binary is genuinely present.
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -261,4 +262,10 @@ def test_renders_a_multi_page_pdf(tmp_path: Path) -> None:
     pdf = render(MULTI_PAGE_SOURCE, tmp_path)
 
     assert pdf.exists()
-    assert pdf.read_bytes().count(b"/Type /Page") >= 2
+    # Count leaf page objects, not the one page-tree root. LilyPond 2.24 writes
+    # each leaf as `/Type/Page` (no space) and the root as `/Type /Pages`, so a
+    # literal count of `/Type /Page` sees only the root and reports a single
+    # page for a document that has several. Matching either spacing while the
+    # `\b` after `Page` excludes `/Pages` counts the leaves the source forces.
+    pages = len(re.findall(rb"/Type\s*/Page\b", pdf.read_bytes()))
+    assert pages >= 2
