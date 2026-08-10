@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from melete import theory
 from melete.instrument import resolve_profile
 from melete.lilypond.emit import (
     Cover,
@@ -50,10 +51,17 @@ _PARAMS: dict[str, object] = {
 }
 
 
+#: The sample exercise's own key. Its notes are G minor pentatonic, so the key
+#: is the one the `scales` family would have set — and the goldens then pin a
+#: real `\key` line rather than an absent one.
+_SAMPLE_KEY = theory.Key(7, "minor_pentatonic")
+
+
 def sample_score(
     instruction: str = "",
     params: dict[str, object] | None = None,
     title: str = "G minor pentatonic",
+    key: theory.Key | None = _SAMPLE_KEY,
 ) -> Score:
     """One exercise, fixed, for the golden files to pin."""
     eighth = Fraction(1, 8)
@@ -81,7 +89,43 @@ def sample_score(
             Note(pitch=28, string=1, fret=0, duration=eighth, finger=None, accent=False),
             Note(pitch=23, string=0, fret=0, duration=Fraction(3, 8), finger=None, accent=True),
         ],
+        key=key,
         params=dict(params) if params is not None else dict(_PARAMS),
+    )
+
+
+def scale_score(key: theory.Key, params: dict[str, object] | None = None) -> Score:
+    """One ascending octave of `key`, so the notes are the key's *own* notes.
+
+    `sample_score` is fixed music that a key is asserted over, which is what
+    makes it the right fixture for the tablature-invariance test — two scores
+    differing only in key. It is the wrong fixture for the spelling tests,
+    because a G minor pentatonic phrase read in F♯ Dorian is mostly
+    out-of-scale tones, and the out-of-scale path is not what those tests are
+    about. This builds the scale itself.
+    """
+    pitches = theory.scale_pitches(36 + key.tonic, key.scale_type, 1)
+    return Score(
+        title="exercise",
+        instruction="",
+        instrument=resolve_profile("bass6"),
+        time_signature=(4, 4),
+        tempo_range=(80, 100),
+        voice=[
+            Note(
+                pitch=pitch,
+                string=0,
+                fret=pitch - 23,
+                duration=Fraction(1, 8),
+                finger=None,
+                accent=False,
+            )
+            for pitch in pitches
+        ],
+        key=key,
+        params=dict(params)
+        if params is not None
+        else {"root": key.tonic, "scale_type": key.scale_type},
     )
 
 
@@ -176,6 +220,7 @@ def test_book_matches_the_golden_file() -> None:
                 "start_fret": 5,
             },
             title="D minor 7th",
+            key=theory.Key(2, "aeolian"),
         ),
     ]
     cover = Cover(date="2026-08-09", instrument="bass6")
@@ -226,11 +271,17 @@ def test_an_unknown_staff_mode_names_the_accepted_values() -> None:
 
 
 @pytest.mark.parametrize("staves", ["both", "tab", "notation"])
-def test_no_key_signature_and_explicit_accidentals(staves: str) -> None:
-    # §10, decision #9: modal exercises must not imply a tonal centre, so
-    # every altered tone prints its own accidental.
+def test_accidentals_are_engraved_against_the_signature(staves: str) -> None:
+    # This test asserted `\key ` never appears, citing decision #9. Decision
+    # #27 supersedes it: #9 conflated *whether to print a signature* with *how
+    # to spell a note*, and its implementation engraved F♯ Dorian as G♭ A♭ B𝄫
+    # C♭ D♭ E𝄫 F♭. §10 now prints the signature by default.
+    #
+    # `\accidentalStyle forget` survives the reversal unchanged, and is what
+    # makes both §10 settings correct: it remembers nothing, so every accidental
+    # is engraved relative to the key signature — nothing for a diatonic tone,
+    # and an explicit accidental on every occurrence of an altered one.
     assert r"\accidentalStyle forget" in emit_score(sample_score(), staves=staves)
-    assert r"\key " not in emit_score(sample_score(), staves=staves)
 
 
 @pytest.mark.parametrize("staves", ["both", "tab", "notation"])
@@ -256,6 +307,132 @@ def test_the_time_signature_and_tempo_range_are_engraved() -> None:
     out = emit_score(sample_score(), staves="both")
     assert r"\time 4/4" in out
     assert r"\tempo 4 = 80 - 100" in out
+
+
+# --------------------------------------------------------------------------
+# Key signatures and spelled note names (spec §10, §10a, decision #27)
+# --------------------------------------------------------------------------
+
+
+def test_a_diatonic_key_emits_its_signature() -> None:
+    # Tier 1: seven degrees, seven letters, and a LilyPond mode keyword of its
+    # own. Four sharps, not eight flats.
+    out = emit_score(scale_score(theory.Key(6, "dorian")), staves="both")
+    assert r"\key fis \dorian" in out
+
+
+def test_a_tier_2_key_borrows_its_parent_signature() -> None:
+    # §10a: harmonic minor prints natural minor's signature, which is why its
+    # raised seventh appears as an accidental — exactly how it is written by
+    # hand.
+    out = emit_score(scale_score(theory.Key(0, "harmonic_minor")), staves="both")
+    assert r"\key c \minor" in out
+
+
+def test_a_tier_2_subset_borrows_its_parent_signature_too() -> None:
+    out = emit_score(scale_score(theory.Key(0, "major_pentatonic")), staves="both")
+    assert r"\key c \major" in out
+
+
+def test_a_symmetric_scale_emits_no_signature() -> None:
+    # Tier 3: LilyPond has no key signature for a six-note scale, and inventing
+    # one would assert a tonal centre the scale does not have.
+    out = emit_score(scale_score(theory.Key(0, "whole_tone")), staves="both")
+    assert r"\key" not in out
+
+
+def test_a_score_with_no_key_emits_no_signature() -> None:
+    # `key is None` is a real value, not an omission (§10a): it is what the
+    # chromatic family produces.
+    out = emit_score(sample_score(key=None), staves="both")
+    assert r"\key" not in out
+
+
+def test_key_signatures_false_omits_the_signature_but_keeps_the_spelling() -> None:
+    # §10's second setting: no asserted tonal centre, every altered tone
+    # visible — and F♯ still spelled F♯. That is decision #9's original intent,
+    # implemented as a presentation choice rather than as a broken spelling.
+    score = scale_score(theory.Key(6, "dorian"))
+    out = emit_score(score, staves="both", key_signatures=False)
+    assert r"\key" not in out
+    assert "fis" in out
+
+    # Asserted on the notation staff alone as well, so the `fis` above cannot
+    # be coming from the keyless tablature spelling.
+    notation = emit_score(score, staves="notation", key_signatures=False)
+    assert r"\key" not in notation
+    assert "fis" in notation
+
+
+def test_the_book_honours_key_signatures_too() -> None:
+    scores = [scale_score(theory.Key(6, "dorian"))]
+    cover = Cover(date="2026-08-09", instrument="bass6")
+    assert r"\key fis \dorian" in emit_book(scores, cover)
+    assert r"\key" not in emit_book(scores, cover, key_signatures=False)
+
+
+def test_f_sharp_dorian_never_emits_flats() -> None:
+    """Named regression test for the original defect (§14).
+
+    F♯ Dorian engraved as G♭ A♭ B𝄫 C♭ D♭ E𝄫 F♭ — a different key, and an absurd
+    one — while the tablature stayed correct and the two staves disagreed
+    silently. This is a whole-file assertion on purpose: a flat spelling
+    anywhere in the source, including in the tab staff, is the defect.
+    """
+    out = emit_score(scale_score(theory.Key(6, "dorian")), staves="both")
+    for wrong in ("ges", "aes", "beses", "ces", "des", "eeses", "fes"):
+        assert wrong not in out
+
+
+def test_f_sharp_dorian_spells_all_seven_degrees_with_sharps() -> None:
+    # F♯ G♯ A B C♯ D♯ E, and the closing octave (§14's "known keys"). Asserted
+    # with the duration and the octave marks attached, so a right letter in the
+    # wrong octave does not pass.
+    out = emit_score(scale_score(theory.Key(6, "dorian")), staves="notation")
+    for right in ("fis8", "gis8", "a8", "b8", "cis'8", "dis'8", "e'8", "fis'8"):
+        assert right in out
+
+
+def test_a_double_accidental_is_spelled_with_a_doubled_suffix() -> None:
+    # Nothing in the sample material needs one, but the letter rule produces
+    # them — the altered scale on a sharp tonic is full of them — and `cisis`
+    # is not a construct to discover for the first time on a printed sheet.
+    out = emit_score(scale_score(theory.Key(6, "lydian_sharp2")), staves="notation")
+    assert "isis" in out
+
+
+def test_the_spelled_octave_is_the_letters_not_the_pitchs() -> None:
+    # §10a: `SpelledPitch.octave` belongs to the letter. G♭ major's fourth
+    # degree sounds pitch 71 (B4) and is written C♭5 — a letter above the pitch
+    # it sounds. Recomputing the octave from the pitch would put it, and 41
+    # other notes across the 12x27 sweep, an octave low while every other
+    # assertion still passed.
+    out = emit_score(scale_score(theory.Key(6, "ionian")), staves="notation")
+    assert r"\key ges \major" in out
+    assert "ces'8" in out  # C♭5 written, the letter's octave
+    assert "ces8" not in out  # C♭4, what the sounding pitch would have given
+
+
+def _tab_staff_of(source: str) -> str:
+    """Everything from the tab staff onward — its settings and its music."""
+    return source[source.index(r"\new TabStaff") :]
+
+
+def test_tablature_is_unchanged_by_the_key() -> None:
+    """Spelling must not leak into tab (§10a, §14).
+
+    A fret number is a function of pitch, and F♯ and G♭ are the same pitch, so
+    a change of key cannot move a single fret. The two scores here differ in
+    nothing but their key.
+    """
+    dorian = sample_score(key=theory.Key(6, "dorian"))
+    lydian = sample_score(key=theory.Key(6, "lydian"))
+
+    assert emit_score(dorian, staves="tab") == emit_score(lydian, staves="tab")
+    assert _tab_staff_of(emit_score(dorian)) == _tab_staff_of(emit_score(lydian))
+
+    # ...and the test is not vacuous: the notation staff really does change.
+    assert emit_score(dorian, staves="notation") != emit_score(lydian, staves="notation")
 
 
 # --------------------------------------------------------------------------
@@ -346,8 +523,31 @@ def test_entries_are_numbered_in_order() -> None:
 
 
 def test_a_chord_quality_reads_as_prose_too() -> None:
-    out = _cover_of(sample_score(params={"root": 2, "quality": "min7"}))
+    out = _cover_of(
+        sample_score(params={"root": 2, "quality": "min7"}, key=theory.Key(2, "aeolian"))
+    )
     assert "1. D minor 7th, 80-100 bpm" in out
+
+
+def test_the_cover_page_names_the_tonic_as_spelled() -> None:
+    # §12's entry and the staff's signature are the same derivation, so the
+    # cover cannot call an exercise G♭ Dorian while the staff engraves F♯
+    # Dorian. That disagreement is the original defect in miniature.
+    out = _cover_of(scale_score(theory.Key(6, "dorian")))
+    assert "F# Dorian" in out
+    assert "Gb" not in out
+
+
+def test_the_cover_page_names_a_flat_tonic_with_a_flat() -> None:
+    out = _cover_of(scale_score(theory.Key(1, "ionian")))
+    assert "Db Ionian" in out
+
+
+def test_a_root_with_no_key_is_named_by_direction() -> None:
+    # No key is a real value, and the cover spells it through the same entry
+    # point the staff does — so the two still agree, by construction.
+    out = _cover_of(sample_score(params={"root": 6, "scale_type": "dorian"}, key=None))
+    assert "1. F# Dorian" in out
 
 
 def test_an_exercise_with_no_tonal_root_still_gets_an_entry() -> None:
