@@ -60,6 +60,8 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
+from melete import theory
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -67,6 +69,10 @@ if TYPE_CHECKING:
 
 #: Left hand, index finger through little finger (spec §6).
 FINGERS = range(1, 5)
+
+#: The pitch classes a key's tonic can name (spec §10a). Taken from `theory`'s
+#: table rather than written as a second literal twelve.
+TONICS = range(len(theory.PITCH_CLASSES))
 
 
 def _first_foreign(items: Iterable[object], allowed: tuple[type, ...]) -> tuple[int, object] | None:
@@ -184,6 +190,20 @@ class Score:
     `tempo_range` comes from the family, never from a sampled axis: letting it
     vary across sessions would be progressive overload arriving through the back
     door, which §17 defers to v2 (decision #20).
+
+    `key` is the tonal center the notes are *written* against (§10a). A pitch is
+    a 12-TET integer and therefore cannot carry a spelling on its own — F♯ and
+    G♭ are the same number — so this is the field that decides whether the
+    notation staff reads F♯ Dorian or the same sounds written as G♭ Dorian, an
+    eight-flat key nobody plays from. Tablature is unaffected either way, which
+    is what made the original defect silent.
+
+    `None` is a real value and not an omission: it means the exercise has no
+    tonal center, which is true of everything the `chromatic` family produces,
+    and it spells by direction as tier 3 does. It is also the default, so a
+    family that neglects to set a key produces a Score that engraves perfectly
+    well and spells every note by direction. `tests/families/conftest.py` says
+    what that costs; each family states its key in its own test.
     """
 
     title: str
@@ -192,6 +212,7 @@ class Score:
     time_signature: tuple[int, int]
     tempo_range: tuple[int, int]  # beats per minute, slowest to fastest
     voice: Voice
+    key: theory.Key | None = None  # None = no tonal center, spelled by direction
     params: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -230,6 +251,21 @@ class Score:
                 f"Tuplet as its single nested form."
             )
             raise TypeError(msg)
+
+        if self.key is not None:
+            if self.key.tonic not in TONICS:
+                msg = (
+                    f"key tonic must be a pitch class {TONICS[0]}-{TONICS[-1]}, got "
+                    f"{self.key.tonic}; §10a keeps the tonic a pitch class so that "
+                    f"`root` stays an absolute pitch everywhere else, and 60 is "
+                    f"middle C only in the second sense"
+                )
+                raise ValueError(msg)
+
+            # Called for its lookup, not its answer: `tier` raises a KeyError
+            # naming the value and every accepted scale type, which is the
+            # message §13 asks for and one `theory` already writes.
+            theory.tier(self.key.scale_type)
 
 
 def sounding_duration(voice: Voice) -> Fraction:

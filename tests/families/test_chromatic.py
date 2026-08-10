@@ -19,7 +19,7 @@ from itertools import product
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import assert_central_invariant, notes_of
+from conftest import assert_central_invariant, assert_spelling_sounds_correctly, notes_of
 
 from melete.families.chromatic import DEFAULT_TEMPO_RANGE, INSTRUCTION, generate
 from melete.instrument import PROFILES
@@ -89,6 +89,17 @@ def test_generates_one_complete_cycle() -> None:
 
 def test_obeys_the_central_invariant() -> None:
     assert_central_invariant(generate(BASS6, PARAMS))
+
+
+def test_spells_every_note_as_it_sounds() -> None:
+    assert_spelling_sounds_correctly(generate(BASS6, PARAMS))
+
+
+def test_a_chromatic_exercise_has_no_key() -> None:
+    # §10a: `None` is this family's answer, not a field it forgot. Permutation
+    # work asserts no tonal center, so it is tier 3 by definition and spells by
+    # direction.
+    assert generate(BASS6, PARAMS).key is None
 
 
 def test_fingering_is_first_class() -> None:
@@ -224,6 +235,8 @@ def test_invariant_holds_across_the_sweep(profile_name: str, start_fret: int) ->
     spec = params(start_fret=start_fret, span=min(4, len(profile.tuning)))
     score = generate(profile, spec)
     assert_central_invariant(score)
+    assert_spelling_sounds_correctly(score)
+    assert score.key is None
     assert len(score.voice) == 4 * min(4, len(profile.tuning))
 
 
@@ -241,6 +254,7 @@ def test_invariant_holds_for_every_permutation(permutation: tuple[int, ...]) -> 
 def test_invariant_holds_across_directions_and_shifts(direction: str, shift: str) -> None:
     score = generate(BASS6, params(direction=direction, shift=shift, start_string=2, span=3))
     assert_central_invariant(score)
+    assert_spelling_sounds_correctly(score)
     assert len(score.voice) == (20 if direction == "up_down" else 12)
 
 

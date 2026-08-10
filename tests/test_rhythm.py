@@ -21,6 +21,7 @@ import pytest
 from melete import rhythm, vocabulary
 from melete.instrument import PROFILES
 from melete.score import Note, Score, Tuplet, Voice, sounding_duration
+from melete.theory import Key
 
 BASS6 = PROFILES["bass6"]
 
@@ -57,7 +58,7 @@ def _note(index: int) -> Note:
     )
 
 
-def _score(count: int = 8, voice: Voice | None = None) -> Score:
+def _score(count: int = 8, voice: Voice | None = None, key: Key | None = None) -> Score:
     """A score whose voice is `count` plain notes, standing in for a family."""
     return Score(
         title="C Ionian, positional",
@@ -66,6 +67,7 @@ def _score(count: int = 8, voice: Voice | None = None) -> Score:
         time_signature=(4, 4),
         tempo_range=(80, 100),
         voice=[_note(index) for index in range(count)] if voice is None else voice,
+        key=key,
         params={"family": "scales", "root": 0},
     )
 
@@ -379,6 +381,23 @@ def test_the_incoming_score_is_left_alone() -> None:
 
     assert score.voice == before
     assert score.params == {"family": "scales", "root": 0}
+
+
+def test_the_key_survives_the_rebuild() -> None:
+    """This module rebuilds the Score, so the key is a real risk, not a formality.
+
+    A dropped key is not a visible failure: `spell` falls back to the tier 3
+    direction rule and every exercise engraves plausibly and wrongly — which is
+    precisely the defect §10a exists to fix.
+    """
+    source = _score(4, key=Key(6, "dorian"))
+
+    assert rhythm.apply(source, _params()).key == Key(6, "dorian")
+
+
+def test_a_keyless_score_stays_keyless() -> None:
+    """The `chromatic` family's case: `None` is carried, not repaired."""
+    assert rhythm.apply(_score(4, key=None), _params()).key is None
 
 
 def test_the_title_instruction_instrument_and_tempo_are_untouched() -> None:

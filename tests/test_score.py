@@ -19,6 +19,7 @@ import pytest
 
 from melete.instrument import PROFILES
 from melete.score import Note, Score, Tuplet, Voice, sounding_duration
+from melete.theory import Key
 
 QUARTER = Fraction(1, 4)
 EIGHTH = Fraction(1, 8)
@@ -269,6 +270,48 @@ def test_a_single_tempo_expressed_as_an_equal_range_is_accepted() -> None:
 def test_an_empty_voice_is_accepted() -> None:
     """The IR does not decide what counts as an exercise; §9's gate does."""
     assert _score(voice=[]).voice == []
+
+
+# --------------------------------------------------------------------------
+# The key (spec §10a)
+# --------------------------------------------------------------------------
+
+
+def test_a_score_carries_a_key() -> None:
+    assert _score(key=Key(6, "dorian")).key == Key(6, "dorian")
+
+
+def test_key_is_optional_because_chromatic_exercises_have_none() -> None:
+    """`None` is a value — no tonal center — and not a missing field."""
+    assert _score(key=None).key is None
+
+
+def test_a_score_that_states_no_key_has_none() -> None:
+    assert _score().key is None
+
+
+@pytest.mark.parametrize("tonic", [0, 6, 11])
+def test_every_pitch_class_is_an_accepted_tonic(tonic: int) -> None:
+    assert _score(key=Key(tonic, "ionian")).key == Key(tonic, "ionian")
+
+
+@pytest.mark.parametrize("tonic", [12, -1, 60])
+def test_an_out_of_range_tonic_is_rejected(tonic: int) -> None:
+    """A tonic is a pitch class, not an absolute pitch: 60 is not middle C."""
+    with pytest.raises(ValueError, match="tonic"):
+        _score(key=Key(tonic, "dorian"))
+
+
+def test_an_unknown_scale_type_in_a_key_is_rejected() -> None:
+    with pytest.raises(KeyError, match="dorain"):
+        _score(key=Key(0, "dorain"))
+
+
+def test_the_rejected_scale_type_is_named_alongside_what_is_accepted() -> None:
+    """§13: an error names the value and the values it could have been."""
+    with pytest.raises(KeyError) as raised:
+        _score(key=Key(0, "dorain"))
+    assert "dorian" in str(raised.value)
 
 
 # --------------------------------------------------------------------------

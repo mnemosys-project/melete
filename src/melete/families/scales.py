@@ -385,5 +385,8 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         time_signature=DEFAULT_TIME_SIGNATURE,
         tempo_range=DEFAULT_TEMPO_RANGE,
         voice=voice,
+        # §10a: the exercise is spelled against its own scale, and `root`
+        # reduces to a pitch class because A1 and A2 are the same key.
+        key=theory.Key(root % len(theory.PITCH_CLASSES), scale_type),
         params=dict(params),
     )

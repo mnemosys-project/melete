@@ -11,6 +11,13 @@ whatever grouping arrived — a family's tuplets, if it emitted any, are not a
 second opinion about the rhythm. Pitch, string, fret and fingering are carried
 through untouched.
 
+So is `key`. It arrives with the Score and leaves with it, because `replace`
+copies every field this module does not name — which is the whole reason the
+rebuild is written as a `replace` and not as a fresh `Score(...)`. A hand-built
+Score here would drop the key on the first field anyone added, and the sheet
+would keep engraving: every note spelled by direction instead of by the key
+(§10a), with nothing raising.
+
 ## Written durations, always (decision #16)
 
 `Note.duration` is the value that gets engraved; `Tuplet.ratio` supplies the
