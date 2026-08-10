@@ -63,6 +63,8 @@ the lower fret, and a degree with two equally near positions goes to the lower
 string. A two-octave scale over four strings does not fit in one four-fret box
 on any tuning, so this is a genuine minimization rather than a lookup of a
 memorized shape — and it is deterministic, which is what reproducibility needs.
+The minimization itself is `_shared.boxed`, because `arpeggios` lays out its
+chord tones the same way; what stays here is the error it names on failure.
 
 **`finger` is left unspecified.** §6 makes fingering first class because in
 *chromatic* permutation work the fingering is the exercise. Here the position
@@ -83,8 +85,15 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory, vocabulary
-from melete.families._shared import Parameters, apply_direction
-from melete.instrument import positions
+from melete.families._shared import (
+    Parameters,
+    apply_direction,
+    boxed,
+    octaves,
+    realizable,
+    string_set,
+    windowed,
+)
 from melete.score import Note, Score
 
 if TYPE_CHECKING:
@@ -156,118 +165,17 @@ _PATTERN_WINDOWS: dict[str, tuple[int, ...]] = {
     "numeric_1235": (0, 1, 2, 4),
 }
 
-#: §7's `range_octaves` column.
-_RANGE_OCTAVES = (1, 2, 3)
+#: The axes a `positional` layout names when a degree is out of reach (§13).
+#: `_shared.boxed` raises with this rather than a sentence of its own, because
+#: naming *this family's* axes is the whole of what the error is for.
+_POSITIONAL_AXES = "root, scale_type, range_octaves and string_set"
 
 #: How many degrees `three_note_per_string` puts on each string. Named because
 #: the identifier and the number must not be able to disagree.
 _NOTES_PER_STRING = 3
 
 
-def _realizable(read: Parameters, axis: str, accepted: tuple[str, ...]) -> str:
-    """One identifier from the subset of a shared axis this family realizes.
-
-    `vocabulary` carries the union of every family's values for `traversal` and
-    `pattern`, because the selector samples one axis. A value belonging to
-    another family is rejected here by name rather than dispatched into a
-    branch that does not exist.
-    """
-    value = read.identifier(axis)
-    if value not in accepted:
-        realized = list(accepted)
-        msg = (
-            f"{_FAMILY}: {axis} {value!r} belongs to another family; {_FAMILY} realizes {realized}"
-        )
-        raise ValueError(msg)
-    return value
-
-
-def _octaves(read: Parameters) -> int:
-    """The `range_octaves` axis, which §7 enumerates rather than leaves open."""
-    value = read.integer("range_octaves")
-    if value not in _RANGE_OCTAVES:
-        msg = f"{_FAMILY}: range_octaves must be one of {list(_RANGE_OCTAVES)}, got {value}"
-        raise ValueError(msg)
-    return value
-
-
-def _string_set(read: Parameters, profile: InstrumentProfile) -> tuple[int, ...]:
-    """The strings the exercise is laid across, low to high.
-
-    Strictly ascending and validated rather than repaired, for the reason
-    `instrument` refuses to re-sort a tuning: re-ordering or de-duplicating the
-    set would engrave a different string set from the one the selector drew,
-    and §9's coverage accounting would have no way to see the substitution.
-    """
-    value = read.value("string_set")
-    if not isinstance(value, list | tuple) or not value:
-        msg = f"{_FAMILY}: string_set must be a non-empty sequence of string indices, got {value!r}"
-        raise ValueError(msg)
-
-    strings = tuple(value)
-    if any(isinstance(item, bool) or not isinstance(item, int) for item in strings):
-        msg = f"{_FAMILY}: string_set must hold integer string indices, got {value!r}"
-        raise ValueError(msg)
-
-    if list(strings) != sorted(set(strings)):
-        msg = (
-            f"{_FAMILY}: string_set {list(strings)} must be strictly ascending with no "
-            f"repeats; index 0 is the lowest string, and re-sorting it here would "
-            f"engrave a different string set from the one that was specified"
-        )
-        raise ValueError(msg)
-
-    last = len(profile.tuning) - 1
-    if strings[0] < 0 or strings[-1] > last:
-        msg = (
-            f"{_FAMILY}: string_set {list(strings)} is off profile {profile.name!r}, "
-            f"which has strings 0 to {last}"
-        )
-        raise ValueError(msg)
-    return strings
-
-
-def _patterned(pattern: str, degrees: int) -> list[int]:
-    """Degree indices in playing order, before `direction` is applied."""
-    window = _PATTERN_WINDOWS[pattern]
-    return [start + offset for start in range(degrees - max(window)) for offset in window]
-
-
-def _reachable(
-    profile: InstrumentProfile,
-    pitch: int,
-    strings: tuple[int, ...],
-) -> list[tuple[int, int]]:
-    """Every place within `strings` that sounds `pitch`, lowest string first."""
-    places = [place for place in positions(profile, pitch) if place[0] in strings]
-    if not places:
-        msg = (
-            f"{_FAMILY}: pitch {pitch} is unreachable on strings {list(strings)} of profile "
-            f"{profile.name!r}, which has frets 0 to {profile.fret_count}: root, "
-            f"scale_type, range_octaves and string_set cannot all be satisfied on this "
-            f"instrument"
-        )
-        raise ValueError(msg)
-    return places
-
-
-def _boxed(
-    profile: InstrumentProfile,
-    pitches: Sequence[int],
-    strings: tuple[int, ...],
-) -> list[tuple[int, int]]:
-    """The `positional` layout: the base fret minimizing total fret travel."""
-    choices = [_reachable(profile, pitch, strings) for pitch in pitches]
-
-    def travel(base: int) -> int:
-        return sum(min(abs(fret - base) for _string, fret in places) for places in choices)
-
-    # `min` keeps the first of equal keys, so ties go to the lower fret.
-    base = min(range(profile.fret_count + 1), key=travel)
-    return [min(places, key=lambda place: (abs(place[1] - base), place[0])) for places in choices]
-
-
-def _chunk_sizes(traversal: str, degrees: int, octaves: int, strings: int) -> list[int]:
+def _chunk_sizes(traversal: str, degrees: int, octave_count: int, strings: int) -> list[int]:
     """How many consecutive degrees each string carries, in playing order.
 
     The closing octave joins the last string of an `octave_per_string` layout
@@ -278,8 +186,8 @@ def _chunk_sizes(traversal: str, degrees: int, octaves: int, strings: int) -> li
         return [degrees]
     if traversal == _THREE_NOTE_PER_STRING:
         return [_NOTES_PER_STRING] * strings
-    per_octave = (degrees - 1) // octaves
-    return [*[per_octave] * (octaves - 1), per_octave + 1]
+    per_octave = (degrees - 1) // octave_count
+    return [*[per_octave] * (octave_count - 1), per_octave + 1]
 
 
 def _laid_out(
@@ -313,18 +221,18 @@ def _places(
     strings: tuple[int, ...],
     traversal: str,
     scale_type: str,
-    octaves: int,
+    octave_count: int,
 ) -> list[tuple[int, int]]:
     """Where each degree of the ascending scale is played, in scale order."""
     if traversal == _POSITIONAL:
-        return _boxed(profile, pitches, strings)
+        return boxed(profile, pitches, strings, _FAMILY, _POSITIONAL_AXES)
 
-    sizes = _chunk_sizes(traversal, len(pitches), octaves, len(strings))
+    sizes = _chunk_sizes(traversal, len(pitches), octave_count, len(strings))
     if len(sizes) != len(strings) or sum(sizes) != len(pitches):
         msg = (
             f"{_FAMILY}: traversal {traversal!r} needs {len(sizes)} strings carrying "
             f"{sum(sizes)} degrees, but string_set {list(strings)} has {len(strings)} "
-            f"and {octaves} octaves of {scale_type!r} has {len(pitches)}. traversal, "
+            f"and {octave_count} octaves of {scale_type!r} has {len(pitches)}. traversal, "
             f"string_set, range_octaves and scale_type cannot all be satisfied at once; "
             f"§9 resamples this rather than truncating the cycle"
         )
@@ -356,15 +264,15 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
     scale_type = read.identifier("scale_type")
-    traversal = _realizable(read, "traversal", _TRAVERSALS)
-    pattern = _realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
+    traversal = realizable(read, "traversal", _TRAVERSALS)
+    pattern = realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
     direction = read.identifier("direction")
-    octaves = _octaves(read)
-    strings = _string_set(read, profile)
+    octave_count = octaves(read)
+    strings = string_set(read, profile)
 
-    pitches = theory.scale_pitches(root, scale_type, octaves)
-    places = _places(profile, pitches, strings, traversal, scale_type, octaves)
-    order = apply_direction(_patterned(pattern, len(pitches)), direction)
+    pitches = theory.scale_pitches(root, scale_type, octave_count)
+    places = _places(profile, pitches, strings, traversal, scale_type, octave_count)
+    order = apply_direction(windowed(_PATTERN_WINDOWS[pattern], len(pitches)), direction)
 
     voice: Voice = [
         Note(
