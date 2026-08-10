@@ -41,13 +41,14 @@ dependencies = []
 # not tracking upstream and a range would silently change the renderer.
 bundled-lilypond = ["lilypond==2.25.12"]
 
+[project.scripts]
+# Added by task B15a, with melete/cli.py. Declaring it earlier would have
+# installed a command that fails only when run.
+melete = "melete.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/mnemosys-project/melete"
 Issues = "https://github.com/mnemosys-project/melete/issues"
-
-# [project.scripts] is added by task B15a, which creates melete/cli.py.
-# Declaring the entry point before its target exists would install a command
-# that fails only when run.
 
 [dependency-groups]
 # Exactly the tools vrg-validate invokes. The typecheck stage runs BOTH `ty`

@@ -464,18 +464,29 @@ def _dated(entry: Path) -> datetime.date:
         raise SessionError(msg) from exc
 
 
-def history(root: Path, count: int) -> list[tuple[ExerciseSpec, ...]]:
+def history(
+    root: Path, count: int, *, exclude: datetime.date | None = None
+) -> list[tuple[ExerciseSpec, ...]]:
     """The last `count` sessions, oldest first — the shape `selection.select` reads.
 
     Oldest first is the order the weighting is defined against: the session
     before this one is at distance 1. A corrupt entry inside the window stops
     the run naming the file rather than being skipped (§13).
+
+    `exclude` drops one date, and the date it drops is the one being generated.
+    A day is never part of its own history: regenerating an already-recorded
+    day would otherwise weight the draw against the record it is about to
+    replace, so the same date against the same configuration would hand back a
+    different sheet on every re-run — §9's determinism lost, silently, to a
+    file the run itself wrote. Dropped before the window is taken, so the
+    replaced day does not also displace a real session from it.
     """
     sessions = root / SESSIONS
     if not sessions.is_dir():
         return []
 
-    dated = sorted((_dated(entry), entry) for entry in sessions.iterdir() if entry.is_dir())
+    every = [(_dated(entry), entry) for entry in sessions.iterdir() if entry.is_dir()]
+    dated = sorted(pair for pair in every if pair[0] != exclude)
     recent: list[tuple[ExerciseSpec, ...]] = []
     for on, entry in dated[-count:]:
         logged = read(entry)
