@@ -12,6 +12,7 @@
       \omit StringNumber
     } {
       \clef "bass_8"
+      \key g \minor
       \tempo 4 = 80 - 100
       \accidentalStyle forget
       \time 4/4

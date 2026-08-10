@@ -29,6 +29,7 @@
           \omit StringNumber
         } {
           \clef "bass_8"
+          \key g \minor
           \tempo 4 = 80 - 100
           \accidentalStyle forget
           \time 4/4
@@ -42,7 +43,7 @@
         } {
           \accidentalStyle forget
           \time 4/4
-          g4\2-> bes8\2-3 c'8\2-4 \tuplet 3/2 { d'8\2-1 f'8\2-4 g'8\2-1 } d8\3 b,8\4-2 a,8\4 e,8\5
+          g4\2-> ais8\2-3 c'8\2-4 \tuplet 3/2 { d'8\2-1 f'8\2-4 g'8\2-1 } d8\3 b,8\4-2 a,8\4 e,8\5
           b,,4.\6->
           \bar "|."
         }
@@ -59,6 +60,7 @@
           \omit StringNumber
         } {
           \clef "bass_8"
+          \key d \minor
           \tempo 4 = 80 - 100
           \accidentalStyle forget
           \time 4/4
@@ -72,7 +74,7 @@
         } {
           \accidentalStyle forget
           \time 4/4
-          g4\2-> bes8\2-3 c'8\2-4 \tuplet 3/2 { d'8\2-1 f'8\2-4 g'8\2-1 } d8\3 b,8\4-2 a,8\4 e,8\5
+          g4\2-> ais8\2-3 c'8\2-4 \tuplet 3/2 { d'8\2-1 f'8\2-4 g'8\2-1 } d8\3 b,8\4-2 a,8\4 e,8\5
           b,,4.\6->
           \bar "|."
         }
