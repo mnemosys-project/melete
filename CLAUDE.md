@@ -4,11 +4,17 @@ This file provides guidance to Claude Code when working in this repository.
 
 **Project name**: melete
 
-## Validation
+## The renderer is provisional
 
-```bash
-vrg-container-run -- vrg-validate
-```
+Melete engraves through LilyPond and **that renderer is being replaced**
+(`melete#71`). Only `lilypond/emit.py`, `lilypond/render.py` and
+`tests/lilypond/golden/` are renderer-specific; every other module is
+renderer-agnostic and must stay that way. `score.py` is the seam
+that keeps it so — families produce a `Score`, the emitter consumes one, and
+neither imports the other. Do not let LilyPond knowledge leak past it.
+
+See [`docs/design.md`](docs/design.md), *The renderer boundary*, and epic #1's
+spec §4. No LilyPond material is to be deleted; it is the migration's input.
 
 <!-- vergil:template:claude-md:begin -->
 ## Memory management

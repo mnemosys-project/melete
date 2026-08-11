@@ -1,4 +1,9 @@
-"""Adapter over the LilyPond binary — the blast door (spec §4).
+"""Adapter over the LilyPond binary — half the blast door (spec §4).
+
+This module isolates the *binary*; `emit` isolates the *syntax*. A change of
+LilyPond distribution lands here and nowhere else, which is what decision #23
+paid out. A change of *renderer* is both modules and their golden files — see
+spec §4, *The renderer boundary*, and melete#71.
 
 This is the only module in melete that knows a LilyPond binary exists. It takes
 LilyPond source text and a directory, and returns the path to a rendered PDF.

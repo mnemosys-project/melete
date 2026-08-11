@@ -5,12 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "melete"
 version = "0.1.0"
-description = "Practice exercise generator. Parameterized bass exercises rendered to standard notation and tablature via LilyPond."
+# Describes what melete does, not how it currently engraves. The renderer is
+# being replaced (melete#71); it does not belong in the one-line definition or
+# in the keywords, both of which PyPI and `pip show` display.
+description = "Practice exercise generator. Parameterized bass exercises engraved as standard notation and tablature."
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 authors = [{ name = "Phillip Moore" }]
-keywords = ["music", "practice", "bass", "lilypond", "tablature", "notation"]
+keywords = ["music", "practice", "bass", "guitar", "tablature", "notation"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: End Users/Desktop",
