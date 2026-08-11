@@ -28,7 +28,7 @@
         \new Staff \with {
           \omit StringNumber
         } {
-          \clef "bass_8"
+          \clef "bass"
           \key g \minor
           \tempo 4 = 80 - 100
           \accidentalStyle forget
@@ -59,7 +59,7 @@
         \new Staff \with {
           \omit StringNumber
         } {
-          \clef "bass_8"
+          \clef "bass"
           \key d \minor
           \tempo 4 = 80 - 100
           \accidentalStyle forget

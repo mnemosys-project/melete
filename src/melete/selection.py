@@ -106,15 +106,14 @@ from melete import rhythm
 from melete.config import DEFAULT_HORIZON, RHYTHM
 from melete.families import REGISTRY
 from melete.instrument import hand_span
-from melete.score import Tuplet
+from melete.score import notes
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
     from random import Random
 
     from melete.config import AxisValue, Config
     from melete.instrument import InstrumentProfile
-    from melete.score import Note, Voice
 
 #: The lowest weight any candidate can carry (§9). A recently used value becomes
 #: unlikely, never impossible: at 0.05 a value drawn today still has one chance
@@ -441,19 +440,6 @@ def _realized(params: dict[str, AxisValue], profile: InstrumentProfile) -> dict[
 # --------------------------------------------------------------------------
 
 
-def _notes(voice: Voice) -> Iterator[Note]:
-    """Every note the exercise prints, tuplets flattened into their contents.
-
-    §6 allows exactly one level of nesting, so this is one pass and never
-    recursion.
-    """
-    for item in voice:
-        if isinstance(item, Tuplet):
-            yield from item.notes
-        else:
-            yield item
-
-
 def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> str | None:
     """Why this specification cannot be used, or `None` if it can.
 
@@ -473,7 +459,7 @@ def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> s
     except ValueError as error:
         return str(error)
 
-    printed = list(_notes(score.voice))
+    printed = list(notes(score.voice))
     if len(printed) > config.session.max_notes:
         return (
             f"{family}: the cycle is {len(printed)} notes, over the max_notes bound of "

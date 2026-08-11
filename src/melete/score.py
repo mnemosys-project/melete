@@ -63,7 +63,7 @@ from typing import TYPE_CHECKING
 from melete import theory
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
     from melete.instrument import InstrumentProfile
 
@@ -266,6 +266,23 @@ class Score:
             # naming the value and every accepted scale type, which is the
             # message §13 asks for and one `theory` already writes.
             theory.tier(self.key.scale_type)
+
+
+def notes(voice: Voice) -> Iterator[Note]:
+    """Every note a voice prints, tuplets flattened into their contents.
+
+    §6 allows exactly one level of nesting, so this is one pass and never
+    recursion. It lives here rather than beside either caller because a voice is
+    this module's structure: the length gate (§9) and the emitter's clef
+    decision (§10) both have to see the notes *inside* a tuplet, and two private
+    walks that must agree about the nesting rule are the drift decision #19
+    exists to prevent.
+    """
+    for item in voice:
+        if isinstance(item, Tuplet):
+            yield from item.notes
+        else:
+            yield item
 
 
 def sounding_duration(voice: Voice) -> Fraction:
