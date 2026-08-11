@@ -20,8 +20,13 @@ Module layout (spec section 4):
 
 Two boundaries are load-bearing. `score` is the seam: families produce a
 Score and the emitter consumes one, and neither imports the other.
-`lilypond.render` is the blast door: the only module aware that a LilyPond
-binary exists.
+
+The `lilypond` package is the blast door, and it is two modules rather than
+one: `render` is the only module aware that a LilyPond *binary* exists, and
+`emit` is the only module that knows LilyPond *syntax*. A change of
+distribution touches `render` alone; a change of renderer touches both, plus
+their golden files. Every other module here is renderer-agnostic. The renderer
+is being replaced (melete#71) — see docs/design.md, *The renderer boundary*.
 """
 
 __version__ = "0.1.0"

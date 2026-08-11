@@ -6,6 +6,15 @@ It never learns what a Dorian mode is, and it never learns that a LilyPond
 binary exists: `render` is the only module aware of the binary (spec §4), and
 nothing here shells out or touches the filesystem.
 
+**This module and `render` are the only renderer-specific code in melete**, and
+this is the larger of the two: `render` isolates the binary, this file isolates
+the syntax. A change of renderer rewrites both, together with the golden `.ly`
+files. Everything else — `theory` and the whole spelling model, `instrument`,
+`score`, the families, `rhythm`, `selection`, `config`, `session` — is
+renderer-agnostic. The renderer is being replaced; see melete#71 and spec §4,
+*The renderer boundary*. Every convention below is renderer-specific and a
+successor may well choose differently.
+
 ## Written durations arrive already writable (decision #16)
 
 `Note.duration` is the engraved value and `Tuplet.ratio` supplies the scaling,
@@ -29,6 +38,16 @@ note's pitch against the declared tuning, so a transposition applied to one and
 not the other would put every fret number twelve semitones out while the
 tablature still looked like music.
 
+**Melete owns that octave, and this file is its only owner** (decision #39).
+`Note.pitch` is the sounding pitch everywhere in the IR; the `+12` exists here
+and nowhere else, and there is exactly one other convention it has to agree
+with — the plain clef, below. The opposite convention is equally defensible:
+emit the sounding pitch and let an octavated clef apply the octave, which is
+how LilyPond's own `bass-six-string-tuning` is defined and what a successor
+renderer may expect. melete#69 raised it, records the trade-off, and was closed
+unbuilt. Anyone applying an octave anywhere else in the pipeline is applying it
+twice.
+
 **The clef must therefore not transpose as well** (issue #58). This module
 emitted `\clef "bass_8"`, on the reading that the `_8` *described* the octave
 already applied. It does not describe it, it performs it: an octavated clef
@@ -38,7 +57,10 @@ octave *higher* than the plain clef does. LilyPond's own
 paired with `bass_8` for exactly that reason. Transposing the source *and*
 octavating the clef applied the same octave twice and drew every exercise two
 octaves above its sound, with the tablature correct throughout, so the sheet
-read as music and merely accumulated ledger lines. Both accepted clefs are
+read as music and merely accumulated ledger lines. It stood for the whole of
+Phase B and was found by rendering a sheet and looking at it: over 2,700 tests
+at 100% branch coverage passed over it, because the tests assert the emitted
+text and the emitted text was exactly what was intended. Both accepted clefs are
 therefore plain, which is also how published bass material is written: the
 reader takes the octave off once, by the convention, not from a marking.
 

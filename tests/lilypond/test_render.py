@@ -1,4 +1,7 @@
-"""Tests for the LilyPond adapter — the blast door (spec §4).
+"""Tests for the LilyPond adapter — half the blast door (spec §4).
+
+The adapter isolates the binary; `emit` isolates the syntax. Both are
+renderer-specific and both would be rewritten by a change of renderer.
 
 The behaviours that matter here are the failure paths, because they are what
 spec §13 actually specifies: a failed render keeps its `.ly` on disk and
