@@ -23,11 +23,45 @@ the highest. `lily_string_number` is the only place that mapping exists.
 
 **Octaves.** Bass guitar is written an octave above its sound. Everything
 emitted here — the notes *and* the `stringTunings` chord — is transposed up by
-`_WRITTEN_OCTAVE` and read under `\clef "bass_8"`, which is the convention
-LilyPond's own `bass-six-string-tuning` uses. The two must move together:
-LilyPond derives each fret number from the note's pitch against the declared
-tuning, so a transposition applied to one and not the other would put every
-fret number twelve semitones out while the tablature still looked like music.
+`_WRITTEN_OCTAVE`, so every pitch in the generated source is the **written**
+pitch. The two must move together: LilyPond derives each fret number from the
+note's pitch against the declared tuning, so a transposition applied to one and
+not the other would put every fret number twelve semitones out while the
+tablature still looked like music.
+
+**The clef must therefore not transpose as well** (issue #58). This module
+emitted `\clef "bass_8"`, on the reading that the `_8` *described* the octave
+already applied. It does not describe it, it performs it: an octavated clef
+moves the staff's reference an octave down, which prints a given pitch an
+octave *higher* than the plain clef does. LilyPond's own
+`bass-six-string-tuning` is `<b,,, e,, a,, d, g, c>` — sounding pitch — and is
+paired with `bass_8` for exactly that reason. Transposing the source *and*
+octavating the clef applied the same octave twice and drew every exercise two
+octaves above its sound, with the tablature correct throughout, so the sheet
+read as music and merely accumulated ledger lines. Both accepted clefs are
+therefore plain, which is also how published bass material is written: the
+reader takes the octave off once, by the convention, not from a marking.
+
+## The clef is chosen from the written range (spec §10, issue #58)
+
+A six-string bass covers four octaves, and an exercise high on the neck can sit
+far enough above the bass staff that the notation is unreadable while the
+tablature reads perfectly — bass clef is simply the wrong clef for that
+register. `_clef` therefore picks the clef that needs **fewer ledger lines**
+over the notes the exercise actually prints, counting them the way an engraver
+does, and leaves bass in place on a tie. Bass is the instrument's home clef, so
+treble has to be strictly better before a reader is asked to change clef; middle
+C is exactly one ledger line from each staff and stays in bass.
+
+Counting rather than thresholding is what makes a wide exercise come out right.
+A passage that reaches high but also touches the open B string would be pushed
+into treble by any "highest note above *x*" rule and would then need more ledger
+lines below than it saved above. One number, measured over the whole exercise,
+answers both cases with no threshold to tune.
+
+**The count is over staff positions, not pitches.** A ledger line is a matter of
+where a notehead sits, which is a function of the letter and the letter's
+octave — see the `SpelledPitch` warning below — and never of the semitone.
 
 ## Spelling is asked for, never decided here (spec §10a)
 
@@ -77,7 +111,7 @@ from melete import theory, vocabulary
 # to the emitter that branches on it, and two tuples that must agree are the
 # drift decision #19 exists to prevent.
 from melete.config import STAVES
-from melete.score import Note, Tuplet
+from melete.score import Note, Tuplet, notes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -90,7 +124,8 @@ if TYPE_CHECKING:
 LILYPOND_VERSION = "2.24.0"
 
 #: Bass guitar sounds an octave below its notation. Notes and tunings are both
-#: written up by this and read under `\clef "bass_8"`. See the module docstring.
+#: written up by this, and the clef must not apply it a second time — see the
+#: module docstring.
 _WRITTEN_OCTAVE = 12
 
 #: LilyPond's unmarked octave: `c` is C3 and `c'` is middle C, so a
@@ -138,6 +173,42 @@ _LILYPOND_MODES: dict[str, str] = {
     "aeolian": "minor",
     "locrian": "locrian",
 }
+
+
+#: The seven letters in staff order from C, so that a position on a staff is
+#: `letters * octave + index`. A staff position counts *diatonic steps*, which
+#: is why this is a string of letters and not a count of semitones: C♭5 and B4
+#: sound the same note and sit one step apart on the page.
+_STAFF_LETTERS = "CDEFGAB"
+
+
+@dataclass(frozen=True)
+class _Clef:
+    """One clef: its LilyPond name, and where its outermost lines sit.
+
+    Neither is octavated, and that is the invariant rather than a coincidence:
+    the source already carries written pitch, so a clef that transposed would
+    apply the octave twice (see the module docstring).
+    """
+
+    name: str
+    bottom_line: int
+    top_line: int
+
+
+def _line(letter: str, octave: int) -> int:
+    """The staff position of a line, named by the note that sits on it."""
+    return len(_STAFF_LETTERS) * octave + _STAFF_LETTERS.index(letter)
+
+
+#: The bass staff, from the G below middle C on its bottom line to the A on its
+#: top line. The instrument's home clef, and the one a tie is settled in favour
+#: of.
+_BASS = _Clef(name="bass", bottom_line=_line("G", 2), top_line=_line("A", 3))
+
+#: The treble staff, bottom line E above middle C to top line F. Chosen only
+#: when the exercise genuinely reads better in it.
+_TREBLE = _Clef(name="treble", bottom_line=_line("E", 4), top_line=_line("F", 5))
 
 
 @dataclass(frozen=True)
@@ -362,6 +433,48 @@ def _key_lines(score: Score, indent: str, *, key_signatures: bool) -> list[str]:
     return [f"{indent}\\key {_note_name(letter, alteration)} \\{mode}"]
 
 
+def _staff_position(spelled: theory.SpelledPitch) -> int:
+    """Where one written pitch sits on a staff, in diatonic steps.
+
+    Built from the **letter and the letter's octave**, exactly as `_pitch_token`
+    is and for the same reason: a notehead's height is a property of its name,
+    not of the pitch it sounds. Deriving it from `Note.pitch` would place the 42
+    spellings that cross the C boundary a step wrong and could tip a clef
+    decision — silently, since the tablature would still be right.
+    """
+    return len(_STAFF_LETTERS) * spelled.octave + _STAFF_LETTERS.index(spelled.letter)
+
+
+def _ledger_lines(clef: _Clef, position: int) -> int:
+    """How many ledger lines one note needs on `clef`.
+
+    Ledger lines are a third apart, so a note two diatonic steps past the
+    outermost line needs one and the note between them is drawn on a space
+    above or below without adding another. Integer division is that rule.
+    """
+    if position > clef.top_line:
+        return (position - clef.top_line) // 2
+    if position < clef.bottom_line:
+        return (clef.bottom_line - position) // 2
+    return 0
+
+
+def _clef(score: Score, key: theory.Key | None) -> _Clef:
+    """The clef this exercise reads better in (spec §10, issue #58).
+
+    Bass unless treble needs **strictly fewer** ledger lines across the whole
+    exercise. The comparison is the engraver's own criterion and needs no
+    threshold; preferring bass on a tie is what keeps the instrument's home clef
+    in place for anything that does not clearly deserve otherwise.
+
+    `key` is the staff's spelling, so the positions counted here are the
+    positions the reader will actually see.
+    """
+    positions = [_staff_position(_written_pitch(note.pitch, key)) for note in notes(score.voice)]
+    counts = {clef: sum(_ledger_lines(clef, at) for at in positions) for clef in (_BASS, _TREBLE)}
+    return _TREBLE if counts[_TREBLE] < counts[_BASS] else _BASS
+
+
 def _notation_staff(score: Score, indent: str, *, key_signatures: bool) -> list[str]:
     r"""The standard-notation staff, always the top staff when it is present.
 
@@ -372,12 +485,15 @@ def _notation_staff(score: Score, indent: str, *, key_signatures: bool) -> list[
     `\omit StringNumber` because the string indications on every note exist for
     the tab staff; printed here they would be circled numerals over music that
     already says where to play.
+
+    The clef is chosen here and nowhere else, which is what keeps it off the tab
+    staff: a fret is a function of pitch, and no clef can move one (§14).
     """
     return [
         f"{indent}\\new Staff \\with {{",
         f"{indent}  \\omit StringNumber",
         f"{indent}}} {{",
-        f'{indent}  \\clef "bass_8"',
+        f"{indent}  \\clef {_quoted(_clef(score, score.key).name)}",
         *_key_lines(score, f"{indent}  ", key_signatures=key_signatures),
         _tempo_line(score, f"{indent}  "),
         *_music_lines(score, f"{indent}  ", score.key),

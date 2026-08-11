@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -32,6 +33,9 @@ from melete.lilypond.emit import (
     lily_string_number,
 )
 from melete.score import Note, Score, Tuplet
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 GOLDEN = Path(__file__).parent / "golden"
 
@@ -127,6 +131,50 @@ def scale_score(key: theory.Key, params: dict[str, object] | None = None) -> Sco
         if params is not None
         else {"root": key.tonic, "scale_type": key.scale_type},
     )
+
+
+def register_score(pitches: Sequence[int], string: int = 5) -> Score:
+    """`pitches` on one string of a bass6, in C major: one clef decision.
+
+    A fixture for the clef tests and nothing else: the register is the whole
+    point, so the music is as plain as a Score can be — quarter notes, no
+    fingerings, no accents, no tuplets — and C ionian spells every natural as
+    itself, which keeps the expected tokens readable in the test that pins them.
+    """
+    profile = resolve_profile("bass6")
+    return Score(
+        title="register",
+        instruction="",
+        instrument=profile,
+        time_signature=(4, 4),
+        tempo_range=(80, 100),
+        voice=[
+            Note(
+                pitch=pitch,
+                string=string,
+                fret=pitch - profile.tuning[string],
+                duration=Fraction(1, 4),
+                finger=None,
+                accent=False,
+            )
+            for pitch in pitches
+        ],
+        key=theory.Key(0, "ionian"),
+        params={"root": 0, "scale_type": "ionian"},
+    )
+
+
+#: Sounding C4-G4 on the C string, which is written C5-G5 — four to six ledger
+#: lines above the bass staff, and inside the treble staff throughout.
+HIGH = (60, 62, 64, 65, 67)
+
+#: The same shape two octaves down, on the E string. Written C3-G3 sits inside
+#: the bass staff and needs no ledger line at all.
+LOW = (36, 38, 40, 41, 43)
+
+#: Sounding C3, the open C string. Written middle C, which is one ledger line
+#: above the bass staff and one below the treble: the exact tie.
+MIDDLE_C = (48,)
 
 
 # --------------------------------------------------------------------------
@@ -450,14 +498,99 @@ def test_string_numbers_are_lilypond_numbers_not_ir_indices() -> None:
 
 
 def test_tunings_are_declared_at_written_pitch_low_string_first() -> None:
-    # Bass guitar is written an octave above its sound, under \clef "bass_8".
-    # The tuning must be declared the same way or every fret number is wrong.
+    # Bass guitar is written an octave above its sound. The tuning must be
+    # declared the same way as the notes or every fret number is wrong.
     out = emit_score(sample_score(), staves="tab")
     assert r"stringTunings = \stringTuning <b,, e, a, d g c'>" in out
 
 
-def test_the_notation_staff_uses_the_octave_transposing_bass_clef() -> None:
-    assert r'\clef "bass_8"' in emit_score(sample_score(), staves="notation")
+# --------------------------------------------------------------------------
+# The clef (spec §10, issue #58)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("staves", ["both", "notation"])
+def test_the_clef_is_never_an_octave_transposing_one(staves: str) -> None:
+    r"""The written octave is applied once, in the source, and never twice.
+
+    Every pitch emitted here is already the **written** pitch, an octave above
+    what the strings sound. `\clef "bass_8"` moves the staff's reference down an
+    octave, so it prints a given pitch an octave *higher* than `\clef "bass"`
+    does — which applied melete's transposition a second time and drew every
+    exercise two octaves above its sound. The tablature was right throughout,
+    so the sheet looked like music and merely piled up ledger lines.
+
+    Neither accepted clef may transpose, and that is what makes the reader's
+    single rule — bass guitar sounds an octave below written — come out at the
+    pitch the tablature plays.
+    """
+    for pitches in (HIGH, MIDDLE_C):
+        out = emit_score(register_score(pitches), staves=staves)
+        assert r"\clef" in out
+        assert "_8" not in out
+        assert "^8" not in out
+
+
+def test_a_low_exercise_is_read_in_bass() -> None:
+    # Written C3-G3 sits inside the bass staff and needs no ledger line at all.
+    assert r'\clef "bass"' in emit_score(register_score(LOW, string=1), staves="notation")
+
+
+def test_a_wide_exercise_stays_in_bass_because_the_count_is_over_all_of_it() -> None:
+    # The sample exercise reaches a written G4 — three ledger lines above the
+    # bass staff — but also touches the open low B two below it. Any rule
+    # reading only the top of the range would move it to treble, where the
+    # bottom of the same exercise would cost far more than the top saved.
+    assert r'\clef "bass"' in emit_score(sample_score(), staves="notation")
+
+
+def test_a_high_exercise_is_read_in_treble() -> None:
+    # Written C5-G5 is four to six ledger lines above the bass staff, sustained
+    # across the whole exercise, and sits inside the treble staff. This is the
+    # exercise issue #58 was filed about.
+    assert r'\clef "treble"' in emit_score(register_score(HIGH), staves="notation")
+
+
+def test_middle_c_is_a_tie_and_the_bass_clef_wins_it() -> None:
+    # Middle C is one ledger line above the bass staff and one below the
+    # treble. Bass is the home clef of the instrument, so treble has to be
+    # strictly better before the reader is asked to change clef.
+    assert r'\clef "bass"' in emit_score(register_score(MIDDLE_C), staves="notation")
+
+
+def test_the_clef_never_moves_the_written_pitches() -> None:
+    r"""A clef decision is a reading instruction, never a transposition.
+
+    The tokens below are the written pitches — sounding C4-G4 an octave up — and
+    they are the same tokens the bass-clef branch would emit for the same notes.
+    Recomputing an octave alongside a clef change is the failure this pins: the
+    tablature would stay right, every test on it would pass, and the staff would
+    name a note the strings do not play.
+    """
+    high = emit_score(register_score(HIGH), staves="notation")
+    assert r'\clef "treble"' in high
+    assert r"c''4\1 d''4\1 e''4\1 f''4\1 g''4\1" in high
+
+    # The same shape two octaves down is read in bass, and its note names are
+    # two octave marks lower — the interval between the two sounding registers,
+    # unchanged by the fact that the two are read from different clefs.
+    low = emit_score(register_score(LOW, string=1), staves="notation")
+    assert r'\clef "bass"' in low
+    assert r"c4\5 d4\5 e4\5 f4\5 g4\5" in low
+
+
+@pytest.mark.parametrize("pitches", [HIGH, MIDDLE_C])
+def test_the_clef_decision_never_reaches_the_tablature(pitches: tuple[int, ...]) -> None:
+    r"""§14: a clef is a notation-staff concern and the tab must not see it.
+
+    A `TabStaff` carries its own clef and derives every fret from pitch against
+    the declared tuning, so a clef chosen for the staff above cannot move a
+    fret. Asserting it here keeps the decision on the side of the seam it was
+    made on — the same boundary §10a draws for spelling.
+    """
+    score = register_score(pitches)
+    assert r"\clef" not in emit_score(score, staves="tab")
+    assert r"\clef" not in _tab_staff_of(emit_score(score, staves="both"))
 
 
 def test_fingerings_and_accents_are_engraved() -> None:
