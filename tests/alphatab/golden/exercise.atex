@@ -1,0 +1,5 @@
+\title "A harmonic minor"
+\tuning(C3 G2 D2 A1 E1 B0)
+\instrument(34)
+.
+\ts 4 4 \ks c \clef bass \tempo 80 0.4{lf 2 ac}.4 2.4{lf 2}.8{tu 3 2} 3.4{lf 3}.8{tu 3 2} 0.3.8{tu 3 2} 3.3{lf 5}.4 1.2{acc # lf 4}.4 | -.2.4 2.3{lf 3}.4{d} 0.1.8 0.6.4
