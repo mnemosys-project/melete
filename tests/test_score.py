@@ -18,7 +18,7 @@ from typing import Any, cast
 import pytest
 
 from melete.instrument import PROFILES
-from melete.score import Note, Score, Tuplet, Voice, sounding_duration
+from melete.score import Measure, Note, Score, Tuplet, Voice, notes, sounding_duration
 from melete.theory import Key
 
 QUARTER = Fraction(1, 4)
@@ -114,14 +114,35 @@ def test_a_full_bar_of_triplet_eighths_sounds_as_written_quarters_would() -> Non
 
 
 # --------------------------------------------------------------------------
-# One level of nesting, no more (spec §6)
+# Tuplet nesting — invariant lifted (melete#87, epic #1 §4 correction)
 # --------------------------------------------------------------------------
 
 
-def test_a_tuplet_inside_a_tuplet_is_rejected() -> None:
-    """The rule the annotation states and cannot enforce."""
-    with pytest.raises(TypeError, match="one level of nesting"):
-        Tuplet(ratio=(3, 2), notes=cast("list[Note]", [_triplet()]))
+def test_tuplet_may_contain_a_tuplet() -> None:
+    """The one-level rule was LilyPond-imposed; the port lifts it (melete#87)."""
+    inner = _triplet()
+    outer = Tuplet(ratio=(3, 2), notes=cast("list[Note]", [inner, _n(EIGHTH), _n(EIGHTH)]))
+    assert outer.notes[0] is inner
+
+
+# --------------------------------------------------------------------------
+# Measure — one bar's voice (melete#87)
+# --------------------------------------------------------------------------
+
+
+def test_measure_wraps_a_voice() -> None:
+    """A Measure holds one bar's flat voice; notes() reads through it."""
+    voice: Voice = [_n(), _n()]
+    measure = Measure(voice=voice)
+    assert measure.voice == voice
+    assert list(notes(measure.voice)) == voice
+
+
+def test_measure_is_frozen_like_a_score() -> None:
+    """Shallow-frozen: the voice field cannot be rebound."""
+    measure = Measure(voice=[_n()])
+    with pytest.raises(FrozenInstanceError):
+        cast("Any", measure).voice = [_n(), _n()]
 
 
 def test_a_tuplet_naming_the_offending_element_rejects_any_foreign_type() -> None:
@@ -142,6 +163,13 @@ def test_a_voice_of_notes_and_tuplets_is_accepted() -> None:
 # --------------------------------------------------------------------------
 # Note
 # --------------------------------------------------------------------------
+
+
+def test_note_tied_defaults_false_and_can_be_set() -> None:
+    """`tied` is additive: it defaults False and round-trips when set (melete#87)."""
+    assert _n().tied is False
+    tied = Note(pitch=60, string=0, fret=0, duration=QUARTER, finger=None, accent=False, tied=True)
+    assert tied.tied is True
 
 
 def test_a_note_stores_both_pitch_and_position() -> None:
