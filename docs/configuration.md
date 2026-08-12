@@ -108,17 +108,17 @@ built-in and explicit profiles alike.
 | `staves` | string | `"both"` | `"both"`, `"tab"`, `"notation"` |
 | `key_signatures` | boolean | `true` | `true`, `false` |
 
-`staves` selects which staves are engraved: standard notation, tablature, or
-both. `--staves` overrides it for one run. Renderer-specific — see
-[What is renderer-specific](#what-is-renderer-specific).
+Both keys are validated and accepted, but they are **inert for the `.gp`
+output** — see [What is renderer-specific](#what-is-renderer-specific). A Guitar
+Pro file settles what each one used to choose:
 
-`key_signatures` selects between two *correct* notations rather than between a
-correct one and a neutral one. Both spell every note correctly for the key.
-
-- `true` prints the key signature and spells diatonically — the fewest
-  accidentals, and what published practice material looks like.
-- `false` prints no signature, asserting no tonal centre, but still spells
-  correctly, with an explicit accidental on every altered tone.
+- `staves` selected standard notation, tablature, or both. A `.gp` carries
+  notation and tablature together and inseparably, so there is nothing to
+  select. `--staves` overrides the key for one run and is equally inert.
+- `key_signatures` chose between two correct notations — a key signature with
+  diatonic spelling, or no signature with an explicit accidental on every
+  altered tone. The alphaTab emitter always writes the key signature, so the key
+  no longer switches between them.
 
 `[output]` is deliberately excluded from the configuration hash the session seed
 is derived from, so changing either key never changes which exercises are drawn.
@@ -388,11 +388,12 @@ never a silent fallback to something that does draw.
 
 ## What is renderer-specific
 
-`[output] staves` chooses between notation and tablature staves, which is a
-property of the engraver melete currently emits for. The renderer is being
-replaced — see
-[melete#71](https://github.com/mnemosys-project/melete/issues/71) — and that key
-is expected to be re-examined with it.
+The `[output]` section is the only renderer-specific configuration, and under
+alphaTab both of its keys are **inert**. Melete renders to a Guitar Pro `.gp`,
+which carries standard notation and tablature together and always shows the key
+signature, so `staves` has nothing to select and `key_signatures` has nothing to
+switch. Both are still validated, so an existing `config.toml` keeps loading;
+they simply no longer change the output.
 
 Every other key on this page describes the instrument, the session or the
 candidate pool, and is renderer-agnostic.

@@ -57,7 +57,7 @@ record that already exists.
 
 ## `generate`
 
-Draws a day's exercises and engraves them as one printable document.
+Draws a day's exercises and engraves them as one Guitar Pro document.
 
 The run, in order:
 
@@ -71,10 +71,10 @@ The run, in order:
    `sessions/`, excluding the date being generated — and draw the session.
 7. With `--dry-run`, print the draw and stop, having written nothing.
 8. With `--force`, remove the existing directory (after the draw succeeded).
-9. Write `src/<exercise>.ly` for every exercise, render the book to
-   `practice.pdf`, then render the `--split` PDFs if asked for.
+9. Write `src/<exercise>.atex` for every exercise, render the book to
+   `practice.gp`, then render the `--split` `.gp`s if asked for.
 10. Write `session.json`.
-11. Print `wrote sessions/<date>/practice.pdf`.
+11. Print `wrote sessions/<date>/practice.gp`.
 
 ### `--date YYYY-MM-DD`
 
@@ -109,7 +109,7 @@ The output is the date, the instrument name and the seed, followed by each
 selected exercise: its family, and every drawn axis with the value in the words
 the cover page would use for it.
 
-**Nothing is written at all** — not the PDF, not the sources, not the session
+**Nothing is written at all** — not the `.gp`, not the sources, not the session
 directory. A dry run that logged its draw would be counted by the history as a
 day that was practised, corrupting the recency weighting from the one command
 whose promise is that it changes nothing.
@@ -127,7 +127,9 @@ This does not change the draw. The configuration hash the seed is derived from
 deliberately excludes `[output]`, so a staff mode cannot hand back a different
 set of exercises.
 
-Renderer-specific — see [What is renderer-specific](#what-is-renderer-specific).
+**Inert for the `.gp` output.** A Guitar Pro file carries notation and
+tablature together and inseparably, so the flag is accepted but selects
+nothing — see [What is renderer-specific](#what-is-renderer-specific).
 
 ### `--count N`
 
@@ -147,18 +149,18 @@ Replace an existing session directory.
 
 The directory is **removed and recreated**, not written into. A `--split` run
 followed by a forced run without `--split` would otherwise leave the previous
-day's per-exercise PDFs sitting beside the new sheet, presented as part of it.
+day's per-exercise `.gp`s sitting beside the new sheet, presented as part of it.
 
 The removal happens after the draw succeeds, so a configuration that no longer
 selects cannot destroy the record of the day it was going to replace.
 
 ### `--split`
 
-Additionally render one PDF per exercise, as `exercise-01.pdf`,
-`exercise-02.pdf`, … beside `practice.pdf`.
+Additionally render one `.gp` per exercise, as `exercise-01.gp`,
+`exercise-02.gp`, … beside `practice.gp`.
 
 The combined document is the printing unit and is always produced; the split
-PDFs are an extra, and they are rendered after it.
+`.gp`s are an extra, and they are rendered after it.
 
 Renderer-specific — see [What is renderer-specific](#what-is-renderer-specific).
 
@@ -180,31 +182,31 @@ Renderer-specific — see [What is renderer-specific](#what-is-renderer-specific
 
 ```text
 sessions/2026-08-09/
-  practice.pdf        cover page + exercises: one printable document
+  practice.gp         cover page + exercises: one Guitar Pro document
   session.json        every parameter of every exercise, the seed, and the
                       weight inputs that produced the draw
-  src/                generated engraver source
-    book.ly           the combined document
-    exercise-01.ly    one file per exercise
-    exercise-02.ly
+  src/                generated alphaTex source
+    book.atex         the combined document
+    exercise-01.atex  one file per exercise
+    exercise-02.atex
     ...
 ```
 
-`--split` adds one PDF per exercise at the top level of the directory, named
+`--split` adds one `.gp` per exercise at the top level of the directory, named
 for the same stems as the sources:
 
 ```text
 sessions/2026-08-09/
-  practice.pdf
-  exercise-01.pdf
-  exercise-02.pdf
+  practice.gp
+  exercise-01.gp
+  exercise-02.gp
   ...
 ```
 
 Sources are written before anything is rendered, and they are rendered *in*
-`src/` with the finished PDFs moved up, because the printable documents belong
-at the top of the session directory and a render writes its `.pdf` beside its
-`.ly`. The renderer may leave its own by-products in `src/` as well.
+`src/` with the finished `.gp`s moved up, because the finished documents belong
+at the top of the session directory and a render writes its `.gp` beside its
+`.atex`. The renderer may leave its own by-products in `src/` as well.
 
 `session.json` is described in spec §12 *The session log*. It is
 human-readable, key-sorted, git-committable and hand-editable, and it is the
@@ -217,9 +219,9 @@ therefore means exactly one thing: **this session completed.**
 
 The consequence is worth stating, because it surprises people:
 
-- **A failed render leaves the session directory and its `.ly` sources on disk,
-  and no `session.json`.** That is deliberate — the source is kept for
-  inspection and for re-running the engraver by hand.
+- **A failed render leaves the session directory and its `.atex` sources on
+  disk, and no `session.json`.** That is deliberate — the source is kept for
+  inspection and for re-running the renderer by hand.
 - Such a directory **is not a session**. The next run for that date refuses it
   by name, and `--force` replaces it. `replay` and `show` refuse it with a
   message saying the run never completed and that deleting the directory clears
@@ -238,12 +240,12 @@ count as a session and would push down every value it drew for the next
 melete replay YYYY-MM-DD
 ```
 
-Re-engrave a recorded day from its own record, writing `practice.pdf` into that
+Re-engrave a recorded day from its own record, writing `practice.gp` into that
 day's existing session directory. `src/` is removed and regenerated for the
 same reason `--force` replaces a directory: a source left over from the run
 being replayed is not part of this engraving. No session log is written, and
 the recorded log is not modified. Prints
-`replayed <date> to sessions/<date>/practice.pdf`.
+`replayed <date> to sessions/<date>/practice.gp`.
 
 **`replay` is read-back, not re-execution.** `session.json` holds every
 exercise in full, so the reproduction is reading those exercises back and
@@ -261,7 +263,9 @@ it is a different feature.
 **What is read from the configuration rather than from the record.** The record
 identifies the instrument by name only, so the profile itself — the tuning, the
 fret count, the position span — comes from the current `config.toml`, as do the
-tempo ranges (`[pool.<family>] tempo`) and the staff mode (`[output] staves`).
+tempo ranges (`[pool.<family>] tempo`). The `[output]` keys are read too, but
+they no longer change the `.gp` — see
+[What is renderer-specific](#what-is-renderer-specific).
 
 | Condition | Behaviour |
 |---|---|
@@ -270,7 +274,7 @@ tempo ranges (`[pool.<family>] tempo`) and the staff mode (`[output] staves`).
 | `session.json` unreadable or malformed | Error naming the file and the position in it |
 | The log names a family melete does not generate | Error naming the value and the accepted families |
 | `[instrument] profile` no longer names the recorded instrument | **Refused**: the recorded string indices and frets would engrave as convincing tablature for the wrong bass |
-| The configuration hash no longer matches | **Note printed, then it proceeds**: the exercises are the recorded ones, but tempo ranges and staff mode are read from the configuration as it is now |
+| The configuration hash no longer matches | **Note printed, then it proceeds**: the exercises are the recorded ones, but tempo ranges are read from the configuration as it is now |
 
 `replay` takes no flags. It is not affected by `--split`, and it always renders
 the combined document only.
@@ -350,22 +354,21 @@ else — a defect rather than a refusal — surfaces as a traceback.
 
 ## What is renderer-specific
 
-Melete currently engraves through LilyPond, invoked as an **external binary
-resolved on `PATH`**. It is an environment prerequisite, not a Python
-dependency: if it is not installed, `generate` and `replay` fail with a message
-naming the binary and how to install it. A failed render keeps the `.ly` source
-and reports the engraver's own output verbatim.
+Melete engraves through alphaTab: the emitter writes alphaTex, and the vendored
+`melete-render` Node tool renders it to a Guitar Pro `.gp`. Node with alphaTab
+is an environment prerequisite, not a Python dependency: if Node is not
+available, `generate` and `replay` fail with a message naming the missing tool
+and how to resolve it. A failed render keeps the `.atex` source and reports the
+renderer's own output verbatim.
 
-The renderer is being replaced — see
-[melete#71](https://github.com/mnemosys-project/melete/issues/71). Three parts
-of this page are expected to change with it:
+Two parts of this page name the renderer:
 
-- **`--staves`** and `[output] staves`, which select between notation and
-  tablature staves.
-- **`--split`**, which asks for one document per exercise in addition to the
-  combined one.
-- **The contents of `src/`**, which are LilyPond source files today, and the
-  fact that rendering shells out to an external binary at all.
+- **`--split`**, which asks for one `.gp` per exercise in addition to the
+  combined one, and **the contents of `src/`**, which are alphaTex source files.
+- **`--staves` and `[output] staves`** are **inert** for the `.gp` output. A
+  Guitar Pro file carries standard notation and tablature together and
+  inseparably, so there is no notation-only or tablature-only mode to select;
+  the flag and the key are accepted for compatibility but change nothing.
 
 Everything else on this page — the subcommands, the session directory, the
 draw, the log and its refusals — is renderer-agnostic.
