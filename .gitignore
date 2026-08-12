@@ -22,6 +22,8 @@ coverage.xml
 junit.xml
 licenses.json
 pip-audit.json
+quality-mypy.xml
+quality-ruff.json
 
 # Python
 __pycache__/
