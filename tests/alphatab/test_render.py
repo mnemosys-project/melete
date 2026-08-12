@@ -30,14 +30,21 @@ not valid UTF-8, which a text-mode capture would corrupt.
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import subprocess
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import pytest
 
 from melete.alphatab import render as render_module
+from melete.alphatab.emit import emit_score
 from melete.alphatab.render import RenderError, render
+from melete.instrument import resolve_profile
+from melete.score import Note, Score, Voice
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -274,3 +281,129 @@ def test_a_custom_stem_names_both_files(
 
     assert gp == tmp_path / "etude-1.gp"
     assert (tmp_path / "etude-1.atex").exists()
+
+
+# --------------------------------------------------------------------------
+# The black-box integration test (epic #46, Task 9)
+# --------------------------------------------------------------------------
+#
+# Everything above fakes the binary: the point there is the *adapter* contract,
+# and a fake `node` proves it without a toolchain. This one test fakes nothing.
+# It drives a real `Score` through the real emitter and the real `melete-render`
+# renderer to a real Guitar Pro `.gp`, then re-imports that `.gp` through
+# alphaTab a second time and asserts its structure. It is the end-to-end proof
+# that the whole pipeline — Score to alphaTex to a valid, round-trippable `.gp` —
+# actually works against the real alphaTab, not merely that each stage passes its
+# own unit tests.
+#
+# It is deliberately structural, not content-correctness. Whether the *right*
+# notes landed is the Task 6 alphaTex goldens' job (`test_alphatex_emit.py`); a
+# `.gp` is a binary export whose internals shift with the alphaTab version, so
+# pinning them here would be a brittle second golden with none of the first's
+# clarity. Track count and bar count are the version-stable structural facts that
+# a round trip either preserves or does not — and they are exactly what the Task 1
+# spike checked when it re-imported its probe `.gp`. String indices are *not*
+# asserted: alphaTab renumbers `Note.string` on GP re-import, so a raw-index
+# assertion would fail on a `.gp` that is perfectly correct.
+
+#: `node` on PATH, resolved once. `None` skips the test — the same gate the
+#: LilyPond render integration test puts on its binary. The renderer needs the
+#: Node toolchain the dev container carries; a bare host has no way to run it.
+NODE_ON_PATH = shutil.which(render_module.NODE)
+
+NO_NODE = (
+    "Node is not on PATH. This black-box integration test drives real alphaTex "
+    "through the real melete-render renderer and re-imports the resulting .gp, so it "
+    "needs the Node toolchain the dev container carries (vergil.toml [container] bakes "
+    "alphaTab onto NODE_PATH). It is marked @pytest.mark.integration, runs for real "
+    "under vrg-container-run where Node is present, and skips on a bare host — the same "
+    "discipline the LilyPond render integration test uses. CI runs it inside the "
+    "ordinary pytest job; integration-tests stays false in vergil.toml (melete#23), "
+    "which governs the dedicated integration *job*, not whether this test executes."
+)
+
+#: A second, independent trip through alphaTab: read the `.gp` bytes back with
+#: `ScoreLoader.loadScoreFromBytes` — the loader that sniffs the format — and
+#: print the two structural counts as JSON on stdout. This is the re-import the
+#: spike did by hand, reduced to the two numbers this test asserts. It runs under
+#: the container's Node, whose NODE_PATH resolves `@coderline/alphatab` exactly as
+#: `melete-render` itself relies on (CommonJS `require`).
+_REIMPORT_JS = (
+    "const fs = require('fs');\n"
+    "const alphaTab = require('@coderline/alphatab');\n"
+    "const buf = fs.readFileSync(process.argv[2]);\n"
+    "const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);\n"
+    "const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes);\n"
+    "process.stdout.write(JSON.stringify("
+    "{tracks: score.tracks.length, bars: score.masterBars.length}));\n"
+)
+
+
+def _known_score() -> Score:
+    """A Score whose structure is known by construction: one track, three bars.
+
+    Twelve quarter notes in 4/4 fill exactly three bars, and one exercise is one
+    alphaTab track. Both counts are chosen to be unambiguous — three is not the
+    default a mis-parse would leave — and both survive the GP round trip that the
+    per-note fields do not. The notes sit on the lowest string at real frets so
+    the emitter and renderer see a genuine exercise, but nothing here asserts
+    against them: that is the goldens' job.
+    """
+    profile = resolve_profile("bass6")
+    quarter = Fraction(1, 4)
+    voice: Voice = [
+        Note(
+            pitch=profile.tuning[0] + fret,
+            string=0,
+            fret=fret,
+            duration=quarter,
+            finger=None,
+            accent=False,
+        )
+        for fret in [0, 2, 3, 5] * 3
+    ]
+    return Score(
+        title="integration",
+        instruction="",
+        instrument=profile,
+        time_signature=(4, 4),
+        tempo_range=(80, 80),
+        voice=voice,
+        key=None,
+    )
+
+
+def _reimport_structure(gp: Path, tmp_path: Path) -> dict[str, int]:
+    """Re-import `gp` through alphaTab and return its track and bar counts.
+
+    A failed re-import is surfaced loudly — its stderr becomes the assertion
+    message — rather than swallowed: a silent failure here would let a corrupt
+    `.gp` pass as a valid one, the exact thing this test exists to catch.
+    """
+    node = NODE_ON_PATH
+    assert node is not None  # guaranteed by the skipif; narrows the type
+    script = tmp_path / "reimport.js"
+    script.write_text(_REIMPORT_JS, encoding="utf-8")
+
+    completed = subprocess.run(  # noqa: S603
+        [node, str(script), str(gp)],
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
+    return json.loads(completed.stdout)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(NODE_ON_PATH is None, reason=NO_NODE)
+def test_a_known_score_renders_to_a_valid_gp_and_round_trips(tmp_path: Path) -> None:
+    alphatex = emit_score(_known_score())
+
+    gp = render(alphatex, tmp_path)
+
+    assert gp.exists()
+    # The proof of validity is that alphaTab reads the bytes back at all: a
+    # corrupt or empty `.gp` raises in the loader rather than returning a score.
+    structure = _reimport_structure(gp, tmp_path)
+    assert structure["tracks"] == 1
+    assert structure["bars"] == 3
