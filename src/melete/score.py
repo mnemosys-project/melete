@@ -64,7 +64,7 @@ would trade a real guarantee for one nothing needs. `Note` is hashable, being
 made of scalars.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -340,3 +340,176 @@ def sounding_duration(voice: Voice) -> Fraction:
         else:
             total += item.duration
     return total
+
+
+#: The augmentations a single written note value can carry: no dots, one dot
+#: (×3/2), two dots (×7/4). This is the SAME writable set that `lilypond/emit.py`
+#: encodes in its `_AUGMENTATIONS`, duplicated here deliberately so the barring
+#: pass stays renderer-agnostic — it must not import the emitter (the renderer
+#: boundary, CLAUDE.md). The duplication is temporary: `emit.py` is deleted in
+#: the alphaTab port's task 10, after which this fact has a single home.
+_WRITABLE_AUGMENTATIONS: tuple[Fraction, ...] = (
+    Fraction(1),
+    Fraction(3, 2),
+    Fraction(7, 4),
+)
+
+
+def _split_writable(duration: Fraction) -> list[Fraction]:
+    """Decompose a duration into individually writable note values.
+
+    A *writable* value is a power-of-two note (whole, half, quarter, …) carrying
+    zero, one or two dots: `duration / aug` is `1/2**k` for some `aug` in
+    `_WRITABLE_AUGMENTATIONS`. That is exactly the set the LilyPond emitter's
+    `duration_token` accepts, mirrored here for the boundary reason above.
+
+    A barline remainder is not always one such note — `5/8` is not — so it is
+    split into the fewest writable pieces (here `1/2 + 1/8`), taken greedily
+    largest-first, which the barring pass then ties together.
+
+    `duration` must be dyadic (a power-of-two denominator), which every written
+    note value and every barline remainder is. A non-dyadic value — a tuplet's
+    sounding `1/12`, say — has no notehead and is rejected here rather than
+    silently mis-split (decision #16; no silent failures).
+    """
+    if duration.denominator & (duration.denominator - 1):
+        msg = (
+            f"{duration} is not a dyadic duration and has no written form. "
+            f"_split_writable decomposes barline remainders, which are always a "
+            f"power-of-two fraction of a whole note. A sounding tuplet value like "
+            f"1/12 belongs inside a Tuplet, where its ratio scales it (decision #16)."
+        )
+        raise ValueError(msg)
+
+    pieces: list[Fraction] = []
+    remaining = duration
+    while remaining > 0:
+        # The largest power-of-two note value (a whole note at most — a breve is
+        # not writable, exactly as three dots are not) that fits the remainder.
+        base = Fraction(1)
+        while base > remaining:
+            base /= 2
+        # Extend it with the largest number of dots that still fits: the
+        # augmentations ascend, so the last one that fits wins.
+        piece = base
+        for augmentation in _WRITABLE_AUGMENTATIONS:
+            dotted = base * augmentation
+            if dotted <= remaining:
+                piece = dotted
+        pieces.append(piece)
+        remaining -= piece
+    return pieces
+
+
+def _plan_pieces(
+    duration: Fraction, space: Fraction, capacity: Fraction
+) -> list[tuple[list[Fraction], bool]]:
+    """Lay an overflowing note out across bars as per-bar groups of pieces.
+
+    The note's total `duration` is spread across bars: `space` remains in the
+    current bar and each later bar offers a full `capacity`. Every chunk is the
+    part that lands in one bar, decomposed into writable pieces
+    (`_split_writable`), paired with whether it fills that bar exactly — i.e.
+    whether a barline follows. The caller ties the pieces together and closes a
+    `Measure` after each chunk a barline follows.
+    """
+    chunks: list[tuple[list[Fraction], bool]] = []
+    remaining = duration
+    room = space
+    while remaining > 0:
+        take = min(remaining, room)
+        remaining -= take
+        chunks.append((_split_writable(take), take == room))
+        room = capacity
+    return chunks
+
+
+def bar(voice: Voice, time_signature: tuple[int, int]) -> list[Measure]:
+    """Split a `Voice` into `Measure`s at the barlines a time signature implies.
+
+    The LilyPond emitter never needed this — LilyPond inserts barlines from the
+    durations themselves — but the alphaTab renderer does not auto-bar, so the
+    alphaTex pipeline bars the voice first and emits one `Measure` per bar
+    (melete#87).
+
+    A bar holds `beats * (1 / beat_value)` whole notes of sounding time: 4/4
+    holds one whole note, 6/8 holds three quarters. The voice is walked in
+    *sounding* time (`sounding_duration`, decision #16), and each item is placed
+    as follows.
+
+    - A **Note** that fits the current bar is placed whole. One that would
+      overflow is **split at the barline and tied**: the part that fits stays in
+      this bar with `tied=True`, and the remainder continues into the next
+      bar(s), looping while it spans whole bars. Each emitted piece is an
+      individually writable value (`_split_writable`), every piece but the last
+      is `tied=True`, and the final piece keeps the note's original `tied`.
+      `accent` rides the first piece only; `string`, `fret` and `finger` ride
+      every piece — they are the same stopped note throughout.
+    - A **Tuplet** is indivisible: it is placed whole and never split or
+      flattened into its notes (the barring pass does not descend into it — a
+      nested tuplet passes through untouched). Its notes align to beats, so a
+      family never straddles a barline with one; a tuplet whose sounding time
+      *would* cross a barline is rejected rather than silently mis-split.
+
+    The short final measure is **not** padded (spec §7): it closes with whatever
+    it holds.
+    """
+    beats, beat_value = time_signature
+    capacity = beats * Fraction(1, beat_value)
+
+    measures: list[Measure] = []
+    current: Voice = []
+    filled = Fraction(0)
+
+    for item in voice:
+        if isinstance(item, Tuplet):
+            span = sounding_duration([item])
+            if filled + span > capacity:
+                msg = (
+                    f"a tuplet sounding {span} does not fit the {filled} already in a "
+                    f"bar of {capacity}: it would cross a barline. Tuplets are "
+                    f"indivisible — families align them to beats so this cannot arise "
+                    f"from the pipeline, and splitting one silently would mis-time it."
+                )
+                raise ValueError(msg)
+            current.append(item)
+            filled += span
+            if filled == capacity:
+                measures.append(Measure(voice=current))
+                current = []
+                filled = Fraction(0)
+            continue
+
+        space = capacity - filled
+        if item.duration <= space:
+            current.append(item)
+            filled += item.duration
+            if filled == capacity:
+                measures.append(Measure(voice=current))
+                current = []
+                filled = Fraction(0)
+            continue
+
+        chunks = _plan_pieces(item.duration, space, capacity)
+        total = sum(len(pieces) for pieces, _ in chunks)
+        position = 0
+        for pieces, closes_bar in chunks:
+            for piece_duration in pieces:
+                current.append(
+                    replace(
+                        item,
+                        duration=piece_duration,
+                        accent=item.accent if position == 0 else False,
+                        tied=item.tied if position == total - 1 else True,
+                    )
+                )
+                filled += piece_duration
+                position += 1
+            if closes_bar:
+                measures.append(Measure(voice=current))
+                current = []
+                filled = Fraction(0)
+
+    if current:
+        measures.append(Measure(voice=current))
+    return measures
