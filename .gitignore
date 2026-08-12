@@ -34,3 +34,8 @@ dist/
 
 # Melete output — generated practice sheets are not source
 sessions/
+
+# melete-render (Node/alphaTab) — the renderer's deps are baked into the
+# container image via [container].build-command (global install), never
+# vendored here; a local node_modules would be masked by the runtime mount.
+melete-render/node_modules/

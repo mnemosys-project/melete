@@ -1,0 +1,10 @@
+{
+  "name": "melete-render",
+  "private": true,
+  "type": "commonjs",
+  "version": "0.0.0",
+  "description": "Dumb alphaTex -> Guitar Pro .gp renderer over alphaTab. Vendored, acknowledged extraction-bound technical debt (melete#82). CommonJS on purpose: the dev/CI container bakes alphaTab via a global npm install exposed on NODE_PATH, which only CommonJS require() honours (ESM import ignores NODE_PATH).",
+  "dependencies": {
+    "@coderline/alphatab": "1.8.4"
+  }
+}

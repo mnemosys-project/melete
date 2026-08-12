@@ -29,6 +29,16 @@ integration-tests = false
 [container]
 env-prefixes = []
 system-packages = ["lilypond"]
+# Bake the alphaTab renderer's dependency into the image. The install must land
+# OUTSIDE /workspace (the runtime bind-mount masks anything under it), so this is
+# a GLOBAL install; the tooling exposes the npm global root on NODE_PATH, which
+# CommonJS require() honours (melete-render is CommonJS for this reason). The
+# version is pinned here so a bump edits vergil.toml (already cache-hashed);
+# build-cache-files additionally declares the lockfile so a resolved-tree change
+# rebuilds the image. Needs vergil-tooling >= 2.1.191 (the NODE_PATH fix, #2781).
+# Node itself is already in the base image. See melete#85, epic vergil #291.
+build-command = "npm install -g @coderline/alphatab@1.8.4"
+build-cache-files = ["melete-render/package-lock.json"]
 
 [publish]
 release = true
