@@ -33,17 +33,25 @@ Anything needing real elapsed time — measure math, tempo estimates, the length
 gate of §9 — goes through `sounding_duration`, which is the single shared
 implementation of the formula above. There is deliberately no second one.
 
-## One level of nesting, no more (spec §6)
+## Tuplet nesting is permitted; the one-level rule was LilyPond's (melete#87)
 
-A `Voice` is a flat sequence with `Tuplet` as the single nested form, mapping
-directly onto LilyPond's `\tuplet 3/2 { ... }`. A `Tuplet` holds `Note`s and
-never another `Tuplet`. Both halves of that rule are checked at construction,
-because the type annotations that state them are erased before any family runs.
+A `Voice` is a flat sequence with `Tuplet` as its nested form. A `Tuplet` holds
+`Note`s and *may* hold another `Tuplet`: the old "one level, no more" rule
+existed only because LilyPond's `\tuplet 3/2 { ... }` was the target, and it is
+lifted for the alphaTab port (epic #1 §4 correction, melete#71). The voice's own
+membership — notes and tuplets, nothing else — is still checked at construction,
+because the annotations that state it are erased before any family runs. The
+port's families emit no nested tuplets and the alphaTex emitter flattens any it
+is handed, so the deeper structure this permits is latent, not yet produced.
 
-**Measures are not modelled.** Durations imply barlines and LilyPond inserts
-them, so grouping against the meter — fives over 4/4 — needs no bar-splitting
-logic anywhere in the pipeline. §7's short final measure follows from the same
-stance and is closed by the emitter, not padded with rests here.
+## Measures ARE modelled now, for the alphaTab pipeline (melete#87)
+
+`Measure` wraps one bar's voice. The LilyPond path never needed it — durations
+imply barlines and LilyPond inserts them — but the alphaTab renderer does not
+auto-bar, so a barring pass splits a `Voice` into `Measure`s and the alphaTex
+emitter emits one bar apiece. §7's short final measure is still not padded here.
+`Measure` is consumed only by the new emitter; the LilyPond emitter's inputs are
+untouched, which is what keeps this change additive.
 
 ## Frozen shallowly, and not hashable
 
@@ -103,6 +111,7 @@ class Note:
     duration: Fraction  # WRITTEN value; 1 = whole note, 1/4 = quarter
     finger: int | None  # left hand, 1-4; None = unspecified
     accent: bool
+    tied: bool = False  # tied into the following note; set by the barring pass (melete#87)
 
     def __post_init__(self) -> None:
         if self.duration <= 0:
@@ -139,10 +148,17 @@ class Tuplet:
 
     The notes inside carry their **written** durations, unscaled. See the
     module docstring: the ratio is the only place the scaling lives.
+
+    A member may itself be a `Tuplet`: the "one level, no more" rule was
+    LilyPond-imposed and its construction-time prohibition is lifted (melete#87,
+    epic #1 §4). The static type stays `list[Note]` — the current walkers and the
+    LilyPond emitter handle only flat tuplets — so a nested tuplet is permitted to
+    build but is neither produced by the port's families nor consumed yet; the
+    alphaTex emitter flattens any it is handed.
     """
 
     ratio: tuple[int, int]  # (3, 2) = three in the time of two
-    notes: list[Note]  # written durations, never scaled
+    notes: list[Note]  # written durations, never scaled; runtime also permits a nested Tuplet
 
     def __post_init__(self) -> None:
         numerator, denominator = self.ratio
@@ -157,20 +173,39 @@ class Tuplet:
             msg = "a tuplet must hold at least one note; an empty tuplet has no engraved form"
             raise ValueError(msg)
 
-        foreign = _first_foreign(self.notes, (Note,))
+        foreign = _first_foreign(self.notes, (Note, Tuplet))
         if foreign is not None:
             index, item = foreign
             msg = (
-                f"a tuplet holds notes and nothing else, but element {index} is a "
-                f"{type(item).__name__}. Spec §6 allows exactly one level of nesting: "
-                f"a voice is flat with Tuplet as its single nested form, and a tuplet "
-                f"inside a tuplet has no LilyPond construct to map onto."
+                f"a tuplet holds notes and tuplets, but element {index} is a "
+                f"{type(item).__name__}. The one-level-of-nesting rule was "
+                f"LilyPond-imposed and is lifted (melete#87, epic #1 §4): a Tuplet "
+                f"may now hold a Tuplet, but still only Notes and Tuplets."
             )
             raise TypeError(msg)
 
 
-#: A flat sequence of notes and tuplets. The one and only nesting level.
+#: A flat sequence of notes and tuplets; a `Tuplet` may itself nest (melete#87).
 Voice = list[Note | Tuplet]
+
+
+@dataclass(frozen=True)
+class Measure:
+    """One bar's worth of voice, for renderers that must place barlines.
+
+    The LilyPond emitter never needed this: durations imply barlines and LilyPond
+    inserts them. The alphaTab renderer does not auto-bar, so a barring pass
+    groups a `Voice` into `Measure`s and the alphaTex emitter emits one bar per
+    `Measure`. Consumed only by the new pipeline; the LilyPond emitter's inputs
+    are unchanged (melete#87, epic #1 §4), which keeps this change additive.
+
+    Frozen shallowly like `Score`: the `voice` list cannot be rebound, though its
+    contents are not deep-frozen. There is no membership check here — a `Measure`
+    is built by the barring pass from an already-validated `Voice`, never from
+    raw input.
+    """
+
+    voice: Voice
 
 
 @dataclass(frozen=True)
@@ -271,8 +306,10 @@ class Score:
 def notes(voice: Voice) -> Iterator[Note]:
     """Every note a voice prints, tuplets flattened into their contents.
 
-    §6 allows exactly one level of nesting, so this is one pass and never
-    recursion. It lives here rather than beside either caller because a voice is
+    The pipeline's producers emit at most one level of nesting, so this is one
+    pass and never recursion (a nested tuplet is permitted to build since
+    melete#87 but is produced by nothing, so this walk never meets one). It lives
+    here rather than beside either caller because a voice is
     this module's structure: the length gate (§9) and the emitter's clef
     decision (§10) both have to see the notes *inside* a tuplet, and two private
     walks that must agree about the nesting rule are the drift decision #19
