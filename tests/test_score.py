@@ -18,7 +18,17 @@ from typing import Any, cast
 import pytest
 
 from melete.instrument import PROFILES
-from melete.score import Measure, Note, Score, Tuplet, Voice, notes, sounding_duration
+from melete.score import (
+    Measure,
+    Note,
+    Score,
+    Tuplet,
+    Voice,
+    _split_writable,
+    bar,
+    notes,
+    sounding_duration,
+)
 from melete.theory import Key
 
 QUARTER = Fraction(1, 4)
@@ -31,6 +41,16 @@ BASS6 = PROFILES["bass6"]
 def _n(duration: Fraction = QUARTER) -> Note:
     """A note that exists only to carry a duration."""
     return Note(pitch=60, string=0, fret=0, duration=duration, finger=None, accent=False)
+
+
+def _q() -> Note:
+    """A quarter note."""
+    return _n(QUARTER)
+
+
+def _half() -> Note:
+    """A half note."""
+    return _n(Fraction(1, 2))
 
 
 def _triplet() -> Tuplet:
@@ -409,3 +429,128 @@ def test_notes_differing_only_in_written_duration_are_not_equal() -> None:
 
 def test_two_scores_with_the_same_fields_are_equal() -> None:
     assert _score() == _score()
+
+
+# --------------------------------------------------------------------------
+# The barring pass (melete#88)
+# --------------------------------------------------------------------------
+
+
+def test_bar_exact_fit_is_one_measure() -> None:
+    """Four quarters fill 4/4 exactly: one measure, every note untied."""
+    measures = bar([_q(), _q(), _q(), _q()], (4, 4))
+    assert len(measures) == 1
+    assert len(measures[0].voice) == 4
+    for note in measures[0].voice:
+        assert isinstance(note, Note)
+        assert not note.tied
+
+
+def test_bar_splits_and_ties_across_the_barline() -> None:
+    """A half note overflowing 4/4 splits into a tied quarter and a quarter."""
+    measures = bar([_q(), _q(), _q(), _half()], (4, 4))
+    assert len(measures) == 2
+
+    tail = measures[0].voice[-1]
+    head = measures[1].voice[0]
+    assert isinstance(tail, Note)
+    assert isinstance(head, Note)
+
+    assert tail.duration == QUARTER
+    assert tail.tied is True
+
+    assert head.duration == QUARTER
+    assert head.tied is False  # the original half note was untied
+    assert head.pitch == tail.pitch
+
+
+def test_bar_a_split_preserves_position_and_moves_the_accent_to_the_first_piece() -> None:
+    """`string`/`fret`/`finger` ride every piece; `accent` rides only the first."""
+    accented = Note(pitch=64, string=2, fret=5, duration=Fraction(1, 2), finger=3, accent=True)
+    measures = bar([_q(), _q(), _q(), accented], (4, 4))
+
+    tail = measures[0].voice[-1]
+    head = measures[1].voice[0]
+    assert isinstance(tail, Note)
+    assert isinstance(head, Note)
+
+    for piece in (tail, head):
+        assert piece.string == 2
+        assert piece.fret == 5
+        assert piece.finger == 3
+
+    assert tail.accent is True  # the accent stays on the sounded attack
+    assert head.accent is False
+
+
+def test_bar_short_final_measure_is_not_padded() -> None:
+    """Spec §7: the last measure closes under-full rather than being padded."""
+    measures = bar([_q(), _q(), _q()], (4, 4))
+    assert len(measures) == 1
+    assert sounding_duration(measures[0].voice) == Fraction(3, 4)
+
+
+def test_bar_spans_a_note_across_more_than_one_full_bar() -> None:
+    """A 9/4 note fills two whole bars (tied) and leaves a quarter in a third."""
+    measures = bar([_n(Fraction(9, 4))], (4, 4))
+    assert len(measures) == 3
+
+    first = measures[0].voice[0]
+    second = measures[1].voice[0]
+    last = measures[2].voice[0]
+    assert isinstance(first, Note)
+    assert isinstance(second, Note)
+    assert isinstance(last, Note)
+
+    assert (first.duration, first.tied) == (Fraction(1), True)
+    assert (second.duration, second.tied) == (Fraction(1), True)
+    assert (last.duration, last.tied) == (QUARTER, False)
+
+
+def test_bar_a_tuplet_that_fits_passes_through_whole() -> None:
+    """Four triplets sound four quarters and fill 4/4 as intact tuplets."""
+    triplets = [_triplet() for _ in range(4)]
+    measures = bar(list(triplets), (4, 4))
+    assert len(measures) == 1
+    assert measures[0].voice == triplets
+    assert all(isinstance(item, Tuplet) for item in measures[0].voice)
+
+
+def test_bar_does_not_descend_into_a_tuplet() -> None:
+    """A Tuplet (the voice's nested form) is placed whole, never flattened."""
+    trip = _triplet()
+    measures = bar([_q(), trip, _q()], (4, 4))
+    assert len(measures) == 1
+    assert measures[0].voice[1] is trip  # the same object, not its eighths
+
+
+def test_bar_a_tuplet_that_would_cross_a_barline_is_rejected() -> None:
+    """A tuplet is indivisible; one straddling a barline is an error, not a split."""
+    with pytest.raises(ValueError, match="cross a barline"):
+        bar([_q(), _q(), _q(), _n(EIGHTH), _triplet()], (4, 4))
+
+
+def test_bar_of_an_empty_voice_is_no_measures() -> None:
+    assert bar([], (4, 4)) == []
+
+
+# --------------------------------------------------------------------------
+# Writable-duration decomposition (melete#88) — mirrors emit.py's writable set
+# --------------------------------------------------------------------------
+
+
+def test_split_writable_leaves_a_single_writable_value_alone() -> None:
+    assert _split_writable(QUARTER) == [QUARTER]
+    assert _split_writable(Fraction(1)) == [Fraction(1)]
+    assert _split_writable(Fraction(3, 4)) == [Fraction(3, 4)]  # a dotted half
+
+
+def test_split_writable_decomposes_a_remainder_into_the_fewest_tied_pieces() -> None:
+    """5/8 is not one note value: largest-first gives 1/2 + 1/8."""
+    assert _split_writable(Fraction(5, 8)) == [Fraction(1, 2), Fraction(1, 8)]
+
+
+def test_split_writable_rejects_a_non_dyadic_duration() -> None:
+    """A sounding tuplet value like 1/12 has no notehead and is not split."""
+    with pytest.raises(ValueError, match="dyadic"):
+        _split_writable(Fraction(1, 3))
