@@ -10,33 +10,36 @@ it.
 **On replay's semantics.** `replay` is a read-back, not a re-execution: it
 re-engraves the exercises `session.json` already holds. The test that matters
 is therefore `test_replay_reproduces_the_source_it_replayed` — the generated
-LilyPond, byte for byte, after two later sessions have moved the history on.
+alphaTex, byte for byte, after two later sessions have moved the history on.
 A test that asserted the *draw* would be testing a feature this command does
 not have; see `cli._replay`'s docstring.
 
 **On the fake binary.** The same device `tests/test_cli_generate.py`
-established: a real executable named `lilypond` on a replaced `PATH`, so
-`shutil.which` and `subprocess.run` both do the real thing and only the
-engraving is faked. The end-to-end test at the bottom uses the real binary.
+established: a real executable named `node` on `PATH`, so `shutil.which` and
+`subprocess.run` both do the real thing and only the engraving is faked. The
+end-to-end test at the bottom uses the real alphaTab toolchain.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from melete import cli, rhythm, session, vocabulary
+from melete.alphatab import render as render_module
 from melete.families import REGISTRY
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 #: The day every test records and then reads back. A fixed past date rather
 #: than today's, because `replay` and `show` are about a session that is over.
@@ -118,32 +121,28 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-#: Writes an empty file at whatever `-o` names, which is what LilyPond does
-#: with `--pdf`.
-WRITES_A_PDF = """\
-previous=""
-for argument in "$@"; do
-  if [ "$previous" = "-o" ]; then : > "$argument.pdf"; fi
-  previous="$argument"
-done
-"""
+#: A fake `node` body that writes the local-file-header magic of a `.gp` (a ZIP)
+#: to stdout, which is where `melete-render` writes the rendered bytes.
+WRITES_A_GP = r"printf 'PK\003\004'"
 
 
 @pytest.fixture
-def lilypond(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[], None]:
-    """Install a fake `lilypond` on a replaced `PATH`.
+def node(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[], None]:
+    """Install a fake `node` on a *prepended* `PATH`.
 
-    Replaced rather than prepended, so a real LilyPond on the host can never be
-    picked up by accident: these tests behave the same either way.
+    Prepended rather than replaced (as `tests/alphatab/test_render.py` does) so
+    the fake body's coreutils — `printf` — stay reachable. The fake still wins the
+    `shutil.which` lookup, so a real Node baked into the container cannot be
+    picked up in its place and the render stays deterministic.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
 
     def install() -> None:
-        executable = bin_dir / "lilypond"
-        executable.write_text(f"#!/bin/sh\n{WRITES_A_PDF}\n", encoding="utf-8")
+        executable = bin_dir / "node"
+        executable.write_text(f"#!/bin/sh\n{WRITES_A_GP}\n", encoding="utf-8")
         executable.chmod(0o755)
-        monkeypatch.setenv("PATH", str(bin_dir))
+        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
     return install
 
@@ -170,7 +169,7 @@ def run(capsys: pytest.CaptureFixture[str]) -> Callable[[list[str]], Result]:
 
 
 def book_source(project: Path, on: date) -> str:
-    return (session.directory(project, on) / cli.SOURCES / "book.ly").read_text(encoding="utf-8")
+    return (session.directory(project, on) / cli.SOURCES / "book.atex").read_text(encoding="utf-8")
 
 
 def log_text(project: Path, on: date) -> str:
@@ -196,7 +195,7 @@ def generate_a_history(run: Callable[[list[str]], Result], *, days: int = 2) -> 
 
 
 def test_replay_reproduces_the_source_it_replayed(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """The whole guarantee, and the only test that can distinguish the designs.
 
@@ -205,7 +204,7 @@ def test_replay_reproduces_the_source_it_replayed(
     for byte anyway, because it is derived from the recorded exercises rather
     than from a fresh draw.
     """
-    lilypond()
+    node()
     generate_a_history(run)
     first = book_source(project, RECORDED)
 
@@ -216,7 +215,7 @@ def test_replay_reproduces_the_source_it_replayed(
 
 
 def test_replay_leaves_the_record_exactly_as_it_found_it(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """`replay` reads the log; it never writes one.
 
@@ -224,7 +223,7 @@ def test_replay_leaves_the_record_exactly_as_it_found_it(
     history every later draw is weighted against, which is the one file §12
     makes the record rather than an output.
     """
-    lilypond()
+    node()
     generate_a_history(run)
     before = log_text(project, RECORDED)
 
@@ -234,26 +233,26 @@ def test_replay_leaves_the_record_exactly_as_it_found_it(
 
 
 def test_replay_re_renders_the_sheet(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
-    """The point of the command: a lost PDF comes back."""
-    lilypond()
+    """The point of the command: a lost `.gp` comes back."""
+    node()
     generate_a_history(run, days=1)
-    (session.directory(project, RECORDED) / "practice.pdf").unlink()
+    (session.directory(project, RECORDED) / "practice.gp").unlink()
 
     assert run(["replay", RECORDED.isoformat()]).exit_code == 0
 
-    assert (session.directory(project, RECORDED) / "practice.pdf").exists()
+    assert (session.directory(project, RECORDED) / "practice.gp").exists()
 
 
 def test_replay_replaces_the_sources_rather_than_writing_into_them(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """A source left over from the run being replaced is not part of this one."""
-    lilypond()
+    node()
     generate_a_history(run, days=1)
-    stale = session.directory(project, RECORDED) / cli.SOURCES / "exercise-99.ly"
-    stale.write_text("% not from this session\n", encoding="utf-8")
+    stale = session.directory(project, RECORDED) / cli.SOURCES / "exercise-99.atex"
+    stale.write_text("// not from this session\n", encoding="utf-8")
 
     run(["replay", RECORDED.isoformat()])
 
@@ -261,31 +260,31 @@ def test_replay_replaces_the_sources_rather_than_writing_into_them(
 
 
 def test_replay_works_when_the_sources_are_gone(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """`src/` is an output, not an input: the record is what replay reads."""
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     shutil.rmtree(session.directory(project, RECORDED) / cli.SOURCES)
 
     assert run(["replay", RECORDED.isoformat()]).exit_code == 0
 
-    assert (session.directory(project, RECORDED) / cli.SOURCES / "book.ly").exists()
+    assert (session.directory(project, RECORDED) / cli.SOURCES / "book.atex").exists()
 
 
 def test_replay_prints_where_it_wrote(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
-    lilypond()
+    node()
     generate_a_history(run, days=1)
 
     out = run(["replay", RECORDED.isoformat()]).stdout
 
-    assert str(session.directory(project, RECORDED) / "practice.pdf") in out
+    assert str(session.directory(project, RECORDED) / "practice.gp") in out
 
 
 def test_replay_refuses_to_engrave_a_session_for_another_instrument(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """A fret number is a fact about one instrument (§5).
 
@@ -294,7 +293,7 @@ def test_replay_refuses_to_engrave_a_session_for_another_instrument(
     tablature that reads as music and is wrong, which is the failure §5 refuses
     to let a re-sorted tuning cause.
     """
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     write_config(project, profile="bass4")
 
@@ -306,15 +305,16 @@ def test_replay_refuses_to_engrave_a_session_for_another_instrument(
 
 
 def test_replay_says_so_when_the_configuration_has_moved_on(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """The tempo and the staff mode are read from the configuration as it is now.
 
     That is not hidden. The exercises are the recorded ones either way, but a
     replayed sheet whose tempo mark differs from the one that was practised has
-    to say why rather than let the reader discover it.
+    to say why rather than let the reader discover it. alphaTab's tempo is a
+    single value, so the range's slowest is the one engraved.
     """
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     write_config(project, slowest=61, fastest=62)
 
@@ -322,11 +322,11 @@ def test_replay_says_so_when_the_configuration_has_moved_on(
 
     assert result.exit_code == 0
     assert "configuration has changed" in result.stdout
-    assert "61-62 bpm" in book_source(project, RECORDED)
+    assert "\\tempo 61" in book_source(project, RECORDED)
 
 
 def test_replay_restores_the_order_the_parameters_were_drawn_in(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """The record is key-sorted (§12); the cover page is not.
 
@@ -336,7 +336,7 @@ def test_replay_restores_the_order_the_parameters_were_drawn_in(
     family's declared axes then §8's rhythm axes, which is how the selector
     builds one.
     """
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     first = session.replay(project, RECORDED).exercises[0]
     assert list(first.params) == sorted(first.params), "the record comes back alphabetical"
@@ -349,10 +349,16 @@ def test_replay_restores_the_order_the_parameters_were_drawn_in(
 
 
 def test_replay_keeps_a_recorded_axis_no_family_declares(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
-    """§12 makes the log hand-editable, so an unrecognised axis is data, not litter."""
-    lilypond()
+    """§12 makes the log hand-editable, so an unrecognised axis is data, not litter.
+
+    The family carries an extra `params` key untouched (its `generate` reads the
+    axes it declares and ignores the rest), so replay tolerates the record and
+    `cli.ordered` keeps the axis rather than dropping it to tidy the ordering —
+    losing a recorded parameter would be a silent loss of the thing reproduced.
+    """
+    node()
     generate_a_history(run, days=1)
     log = session.directory(project, RECORDED) / session.FILENAME
     document = json.loads(log.read_text(encoding="utf-8"))
@@ -361,14 +367,15 @@ def test_replay_keeps_a_recorded_axis_no_family_declares(
 
     assert run(["replay", RECORDED.isoformat()]).exit_code == 0
 
-    assert "annotation kept" in book_source(project, RECORDED)
+    replayed = cli.ordered(session.replay(project, RECORDED).exercises[0])
+    assert replayed.params["annotation"] == "kept"
 
 
 def test_replay_names_a_recorded_family_that_does_not_exist(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """A hand-edited log is a value to correct, not a traceback (§12, §13)."""
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     log = session.directory(project, RECORDED) / session.FILENAME
     document = json.loads(log.read_text(encoding="utf-8"))
@@ -409,9 +416,9 @@ def test_a_date_that_is_not_a_date_is_refused_by_the_parser(
 
 
 def test_show_summarizes_a_past_session(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
-    lilypond()
+    node()
     generate_a_history(run, days=1)
 
     out = run(["show", RECORDED.isoformat()]).stdout
@@ -422,9 +429,9 @@ def test_show_summarizes_a_past_session(
 
 
 def test_show_prints_one_line_per_recorded_exercise(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     recorded = session.replay(project, RECORDED)
 
@@ -436,7 +443,7 @@ def test_show_prints_one_line_per_recorded_exercise(
 
 
 def test_show_reports_the_recorded_instrument_not_the_current_configuration(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """History is what happened, not what the configuration says today.
 
@@ -444,7 +451,7 @@ def test_show_reports_the_recorded_instrument_not_the_current_configuration(
     `show` misreport every day before the edit, silently and in the one command
     whose whole job is to report the record.
     """
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     write_config(project, profile="bass4")
 
@@ -455,10 +462,10 @@ def test_show_reports_the_recorded_instrument_not_the_current_configuration(
 
 
 def test_show_survives_a_configuration_it_could_not_load(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """`show` reads the record and nothing else, so a broken pool cannot stop it."""
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     (project / "config.toml").write_text('[output]\nstaves = "treble"\n', encoding="utf-8")
 
@@ -466,10 +473,10 @@ def test_show_survives_a_configuration_it_could_not_load(
 
 
 def test_show_names_values_the_way_the_cover_page_does(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """§13's registry is the one source of display names, so the two cannot disagree."""
-    lilypond()
+    node()
     generate_a_history(run, days=1)
 
     out = run(["show", RECORDED.isoformat()]).stdout
@@ -486,7 +493,7 @@ def test_show_names_values_the_way_the_cover_page_does(
 
 
 def test_show_still_reports_a_family_the_registry_does_not_know(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """`show` reports a record; it does not judge whether that record can be engraved.
 
@@ -494,7 +501,7 @@ def test_show_still_reports_a_family_the_registry_does_not_know(
     family that is not there. Reporting what the log says is a different job
     and is still answerable.
     """
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     log = session.directory(project, RECORDED) / session.FILENAME
     document = json.loads(log.read_text(encoding="utf-8"))
@@ -508,10 +515,10 @@ def test_show_still_reports_a_family_the_registry_does_not_know(
 
 
 def test_show_prints_the_axes_in_the_order_they_were_drawn(
-    project: Path, run: Callable[[list[str]], Result], lilypond: Callable[[], None]
+    project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
     """The same order §12's cover page uses, so the two read the same way round."""
-    lilypond()
+    node()
     generate_a_history(run, days=1)
     first = session.replay(project, RECORDED).exercises[0]
 
@@ -669,49 +676,67 @@ def test_the_command_table_is_exactly_the_documented_subcommands() -> None:
 
 
 # --------------------------------------------------------------------------
-# Spec §14: the end-to-end test that needs the binary
+# Spec §14: the end-to-end test that needs the real toolchain
 # --------------------------------------------------------------------------
 
-LILYPOND_ON_PATH = shutil.which("lilypond")
+#: A trivial, renderer-indifferent alphaTex — a title, the `.` header terminator,
+#: and one beat — whose render is the only honest probe for "is the whole
+#: toolchain here?": Node, the `melete-render` script, and `@coderline/alphatab`
+#: on `NODE_PATH` must all be present, and only a real render exercises all three.
+PROBE_ALPHATEX = r'\title "probe" . 3.3.4'
 
-NO_BINARY = (
-    "LilyPond is not on PATH. Install it -- apt-get install lilypond, or brew install "
-    "lilypond -- and this test runs. The dev container carries it (vergil.toml declares "
-    "it under [container].system-packages)."
+
+def _alphatab_toolchain_available() -> bool:
+    """True when a real alphaTex render actually produces a `.gp`."""
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            render_module.render(PROBE_ALPHATEX, Path(tmp))
+    except render_module.RenderError:
+        return False
+    return True
+
+
+ALPHATAB_ON_PATH = _alphatab_toolchain_available()
+
+NO_TOOLCHAIN = (
+    "The alphaTab toolchain is not reachable. Spec §14 requires the binary-dependent "
+    "tests to fail loudly rather than skip silently in any environment that claims to run "
+    "the full suite. melete renders through melete-render, a Node tool driving alphaTab: "
+    "Node must be on PATH, the render.js script must sit at the repo root, and "
+    "@coderline/alphatab must be importable (the container bakes it globally on NODE_PATH, "
+    "melete#85). Inside `vrg-container-run` all three hold and this test runs; a bare host "
+    "without alphaTab installed skips it."
 )
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(LILYPOND_ON_PATH is None, reason=NO_BINARY)
+@pytest.mark.skipif(not ALPHATAB_ON_PATH, reason=NO_TOOLCHAIN)
 def test_replay_reproduces_a_real_sheet_end_to_end(
     project: Path, run: Callable[[list[str]], Result]
 ) -> None:
     """`replay` against the real engraver, with the log moved on past the day.
 
-    Three things are compared, and each answers a different question. The
-    LilyPond source is compared **byte for byte**: that is the whole pipeline
-    from the record to the engraver's input, and it is the artifact that can be
-    identical. The rendered PDF is compared by page count rather than by bytes,
-    because LilyPond stamps a `/CreationDate` into every document and two
-    renders of one source therefore differ in bytes while engraving the same
-    pages. The record is compared to itself, to pin that replay wrote none.
+    Two things are compared, and each answers a different question. The alphaTex
+    source is compared **byte for byte**: that is the whole pipeline from the
+    record to the engraver's input, and it is the artifact that can be identical.
+    The rendered `.gp` is checked only for its ZIP magic — a Guitar Pro file may
+    carry render-time metadata, so two renders of one source need not be
+    byte-identical — and the record is compared to itself, to pin that replay
+    wrote none.
     """
     assert run(["generate", "--date", RECORDED.isoformat()]).exit_code == 0
     first_source = book_source(project, RECORDED)
     first_log = log_text(project, RECORDED)
     directory = session.directory(project, RECORDED)
-    first_pages = len(re.findall(rb"/Type\s*/Page\b", (directory / "practice.pdf").read_bytes()))
 
     for later in LATER:
         assert run(["generate", "--date", later.isoformat()]).exit_code == 0
     shutil.rmtree(directory / cli.SOURCES)
-    (directory / "practice.pdf").unlink()
+    (directory / "practice.gp").unlink()
 
     assert run(["replay", RECORDED.isoformat()]).exit_code == 0
 
     assert book_source(project, RECORDED) == first_source
     assert log_text(project, RECORDED) == first_log
-    pdf = (directory / "practice.pdf").read_bytes()
-    assert pdf.startswith(b"%PDF")
-    assert len(re.findall(rb"/Type\s*/Page\b", pdf)) == first_pages
-    assert first_pages >= 2
+    # A `.gp` is a ZIP; its local-file-header magic is exactly `PK\x03\x04`.
+    assert (directory / "practice.gp").read_bytes().startswith(b"PK\x03\x04")

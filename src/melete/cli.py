@@ -23,7 +23,7 @@ without `--force` *and* — the worse half — a `session.json` that
 all would push down every value it drew for the next fourteen days, invisibly.
 
 Written last, the file's presence means exactly one thing: this session
-completed. §13 still requires the generated `.ly` to survive a failed render,
+completed. §13 still requires the generated `.atex` to survive a failed render,
 so the directory does persist — it just does not become a session. The two
 consequences are deliberate:
 
@@ -40,7 +40,7 @@ consequences are deliberate:
 
 It replaces the directory rather than writing into it: a `--split` run followed
 by a forced run without `--split` would otherwise leave yesterday's per-exercise
-PDFs sitting beside today's sheet, presented as part of it. The removal happens
+`.gp`s sitting beside today's sheet, presented as part of it. The removal happens
 after the draw succeeds, so a configuration that no longer selects cannot
 destroy the record of the day it was going to replace.
 
@@ -74,8 +74,8 @@ from random import Random
 from typing import TYPE_CHECKING
 
 from melete import config, rhythm, session, vocabulary
+from melete.alphatab import emit, render
 from melete.families import REGISTRY
-from melete.lilypond import emit, render
 from melete.selection import SelectionError, select
 
 if TYPE_CHECKING:
@@ -96,12 +96,12 @@ type Arguments = Callable[[argparse.ArgumentParser], None]
 #: §10's configuration, looked up in the working directory.
 CONFIG_NAME = "config.toml"
 
-#: §12's directory of generated LilyPond source: one file per exercise, and one
+#: §12's directory of generated alphaTex source: one file per exercise, and one
 #: for the book.
 SOURCES = "src"
 
-#: The stem the combined document is generated under. Its PDF is moved up to
-#: `practice.pdf`, which is the name §12 prints.
+#: The stem the combined document is generated under. Its `.gp` is moved up to
+#: `practice.gp`, which is the name §12 prints.
 BOOK = "book"
 
 EXIT_OK = 0
@@ -229,7 +229,7 @@ def _generate_flags(generate: argparse.ArgumentParser) -> None:
         "--staves",
         choices=config.STAVES,
         default=None,
-        help="override [output] staves for this run",
+        help="override [output] staves for this run (inert for the .gp output)",
     )
     generate.add_argument(
         "--count",
@@ -245,7 +245,7 @@ def _generate_flags(generate: argparse.ArgumentParser) -> None:
     generate.add_argument(
         "--split",
         action="store_true",
-        help="also render one PDF per exercise",
+        help="also render one .gp per exercise",
     )
 
 
@@ -295,7 +295,7 @@ def _generate(args: argparse.Namespace, root: Path) -> int:
     _engrave(target, active, scores, on, split=args.split)
     session.write(root, session.record(on, active, picks, seed), force=True)
 
-    print(f"wrote {target / render.PDF_NAME}")
+    print(f"wrote {target / render.GP_NAME}")
     return EXIT_OK
 
 
@@ -345,36 +345,37 @@ def _engrave(
     *,
     split: bool,
 ) -> None:
-    """§12's directory: the sources, the combined document, and the split PDFs.
+    """§12's directory: the sources, the combined document, and the split `.gp`s.
 
     The order is the contract. Every source is written before anything is
     rendered, so a failed render leaves the whole day on disk to be inspected
     and re-run by hand (§13) rather than however much of it had been engraved.
-    The book renders before any `--split` PDF, because the book is the printing
-    unit and the split PDFs are an extra.
+    The book renders before any `--split` `.gp`, because the book is the printing
+    unit and the split files are an extra.
 
-    Sources are rendered *in* `src/` and the PDFs moved up, because §12 puts the
+    Sources are rendered *in* `src/` and the `.gp`s moved up, because §12 puts the
     generated source in `src/` and the printable documents at the top of the
-    session directory, and a render writes its `.ly` beside its `.pdf`.
+    session directory, and a render writes its `.atex` beside its `.gp`. The
+    per-exercise `.atex` is written for every exercise regardless of `--split`,
+    so the sources are complete even when only the book is rendered; `--split`
+    adds the per-exercise `.gp`s beside the book's.
     """
     sources = target / SOURCES
     sources.mkdir(parents=True)
 
-    staves = active.output.staves
-    signatures = active.output.key_signatures
-    pages = [emit.emit_score(score, staves, key_signatures=signatures) for score in scores]
+    pages = [emit.emit_score(score) for score in scores]
     for number, page in enumerate(pages, start=1):
-        (sources / f"{_stem(number)}.ly").write_text(page, encoding="utf-8")
+        (sources / f"{_stem(number)}.atex").write_text(page, encoding="utf-8")
 
     cover = emit.Cover(date=on.isoformat(), instrument=active.instrument.name)
-    book = emit.emit_book(scores, cover, staves, key_signatures=signatures)
-    render.render(book, sources, stem=BOOK).replace(target / render.PDF_NAME)
+    book = emit.emit_book(scores, cover)
+    render.render(book, sources, stem=BOOK).replace(target / render.GP_NAME)
 
     if not split:
         return
     for number, page in enumerate(pages, start=1):
         stem = _stem(number)
-        render.render(page, sources, stem=stem).replace(target / f"{stem}.pdf")
+        render.render(page, sources, stem=stem).replace(target / f"{stem}.gp")
 
 
 # --------------------------------------------------------------------------
@@ -585,7 +586,7 @@ def _replay(args: argparse.Namespace, root: Path) -> int:
     scores = [_score(active, ordered(spec)) for spec in recorded.exercises]
     _engrave(target, active, scores, on, split=False)
 
-    print(f"replayed {on.isoformat()} to {target / render.PDF_NAME}")
+    print(f"replayed {on.isoformat()} to {target / render.GP_NAME}")
     return EXIT_OK
 
 
