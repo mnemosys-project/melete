@@ -4,17 +4,21 @@ This file provides guidance to Claude Code when working in this repository.
 
 **Project name**: melete
 
-## The renderer is provisional
+## The renderer boundary
 
-Melete engraves through LilyPond and **that renderer is being replaced**
-(`melete#71`). Only `lilypond/emit.py`, `lilypond/render.py` and
-`tests/lilypond/golden/` are renderer-specific; every other module is
-renderer-agnostic and must stay that way. `score.py` is the seam
-that keeps it so — families produce a `Score`, the emitter consumes one, and
-neither imports the other. Do not let LilyPond knowledge leak past it.
+Melete engraves through alphaTab: families emit alphaTex, and the vendored
+`melete-render/` Node tool renders that to a Guitar Pro `.gp`. Only
+`src/melete/alphatab/emit.py`, `src/melete/alphatab/render.py`, `melete-render/`
+and `tests/alphatab/golden/` are renderer-specific; every other module is
+renderer-agnostic and must stay that way. `score.py` is the seam that keeps it
+so — families produce a `Score`, the emitter consumes one, and neither imports
+the other. Do not let alphaTab knowledge leak past it.
 
-See [`docs/design.md`](docs/design.md), *The renderer boundary*, and epic #1's
-spec §4. No LilyPond material is to be deleted; it is the migration's input.
+`melete-render/` is a vendored Node tool and acknowledged extraction-bound tech
+debt (`melete#82`); it lives inside this boundary until it is extracted.
+
+See [`docs/design.md`](docs/design.md), *The renderer boundary*, and epic
+`mnemosys-project/.github#46`.
 
 <!-- vergil:template:claude-md:begin -->
 ## Memory management
