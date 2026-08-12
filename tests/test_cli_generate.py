@@ -79,10 +79,6 @@ TEMPLATE = """\
 [instrument]
 profile = "bass6"
 
-[output]
-staves = "both"
-key_signatures = true
-
 [session]
 {session}
 
@@ -327,43 +323,6 @@ def test_a_numeric_flag_is_bounded_where_it_is_named(
     assert complaint in error
 
 
-def test_staves_is_accepted_but_inert_for_the_gp_output(
-    project: Path, run: Callable[[list[str]], Result], node: Callable[..., None]
-) -> None:
-    """`--staves` is a notation/tab staff count — a LilyPond notion (§10).
-
-    A `.gp` carries both staves inseparably, so the flag has no output to change.
-    It is kept (Task 10 removes it) and validated against `config.STAVES`, but it
-    is inert: the book source is byte-identical whichever mode is passed. That is
-    checked directly here — two forced regenerations of the same deterministic
-    day (staves is excluded from the seed fingerprint, so the draw is identical)
-    with different staff modes produce the same alphaTex.
-    """
-    node()
-
-    assert run(["generate", "--staves", "tab"]).exit_code == 0
-    with_tab = (session.directory(project, TODAY) / cli.SOURCES / "book.atex").read_text(
-        encoding="utf-8"
-    )
-
-    assert run(["generate", "--staves", "notation", "--force"]).exit_code == 0
-    with_notation = (session.directory(project, TODAY) / cli.SOURCES / "book.atex").read_text(
-        encoding="utf-8"
-    )
-
-    assert with_tab == with_notation
-
-
-def test_an_unknown_staff_mode_is_refused_with_its_accepted_values(
-    project: Path, run: Callable[[list[str]], Result], capsys: pytest.CaptureFixture[str]
-) -> None:
-    with pytest.raises(SystemExit) as exc:
-        run(["generate", "--staves", "treble"])
-
-    assert exc.value.code == 2
-    assert "tab" in capsys.readouterr().err
-
-
 def test_split_emits_one_gp_per_exercise_plus_the_book(
     project: Path, run: Callable[[list[str]], Result], node: Callable[..., None]
 ) -> None:
@@ -567,12 +526,12 @@ def test_a_missing_configuration_names_the_file_it_looked_for(
 def test_an_invalid_configuration_names_the_key(
     project: Path, run: Callable[[list[str]], Result]
 ) -> None:
-    (project / "config.toml").write_text('[output]\nstaves = "treble"\n', encoding="utf-8")
+    (project / "config.toml").write_text("[session]\ncount = 0\n", encoding="utf-8")
 
     result = run(["generate"])
 
     assert result.exit_code == 1
-    assert "output.staves" in result.stderr
+    assert "session.count" in result.stderr
 
 
 def test_an_over_constrained_pool_names_the_axis_that_could_not_be_satisfied(

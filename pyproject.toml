@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "melete"
 version = "0.1.0"
-# Describes what melete does, not how it currently engraves. The renderer is
-# being replaced (melete#71); it does not belong in the one-line definition or
-# in the keywords, both of which PyPI and `pip show` display.
+# Describes what melete does, not how it engraves. The renderer is an
+# implementation detail that does not belong in the one-line definition or in
+# the keywords, both of which PyPI and `pip show` display.
 description = "Practice exercise generator. Parameterized bass exercises engraved as standard notation and tablature."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -23,26 +23,12 @@ classifiers = [
 
 # No runtime Python dependencies (spec section 15, decision 5).
 #
-# LilyPond is required, but as a *binary on PATH*, not as a Python package.
-# The PyPI redistribution ships x86_64 wheels only - no aarch64 build exists
-# for any of its 16 releases - so it cannot be a hard dependency on Apple
-# Silicon or on the arm64 dev container.
-#
-# lilypond/render.py is the only module that knows the binary exists, and
-# section 13 requires it to fail with an explicit resolution when the binary
-# is missing. Obtaining LilyPond is therefore an environment concern:
-#   Debian/Ubuntu   apt-get install lilypond      (2.24.4 on trixie arm64)
-#   macOS           brew install lilypond, or the upstream darwin-arm64 tarball
-#
-# See melete#21 for the work to publish our own aarch64 wheels, which would
-# restore the zero-prerequisite install this originally aimed at.
+# Rendering is a *toolchain on PATH*, not a Python package: the vendored
+# `melete-render/` Node tool (which drives alphaTab) turns emitted alphaTex into
+# a Guitar Pro `.gp`. alphatab/render.py is the only module that knows that tool
+# exists, and section 13 requires it to fail with an explicit resolution when it
+# is missing. Obtaining the toolchain is therefore an environment concern.
 dependencies = []
-
-[project.optional-dependencies]
-# The PyPI redistribution, for x86_64 platforms where it does resolve. Opt-in:
-# `uv sync --extra bundled-lilypond`. The pin is exact because this package is
-# not tracking upstream and a range would silently change the renderer.
-bundled-lilypond = ["lilypond==2.25.12"]
 
 [project.scripts]
 # Added by task B15a, with melete/cli.py. Declaring it earlier would have
@@ -95,7 +81,7 @@ files = ["src", "tests"]
 testpaths = ["tests"]
 addopts = "--strict-markers"
 markers = [
-  "integration: requires the LilyPond binary or writes to disk (spec section 14)",
+  "integration: requires the Node/alphaTab toolchain (melete-render) or writes to disk (spec section 14)",
 ]
 
 [tool.coverage.report]

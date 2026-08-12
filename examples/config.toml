@@ -2,10 +2,6 @@
 profile = "bass6"                    # bass4 | bass5 | bass6, or explicit tuning
 position_span = 4                    # frets under one hand: what `positional` means
 
-[output]
-staves = "both"                      # both | tab | notation
-key_signatures = true                # print the key signature (section 10a)
-
 [session]
 count = 5
 horizon = 14

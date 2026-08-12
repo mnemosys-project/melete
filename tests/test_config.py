@@ -25,7 +25,6 @@ from melete import vocabulary
 from melete.config import (
     _AXES_BY_FAMILY,
     _RHYTHM_AXES,
-    STAVES,
     ConfigError,
     load,
     load_string,
@@ -110,12 +109,6 @@ def test_empty_config_defaults_to_bass6() -> None:
     assert cfg.instrument.fret_count == 24
 
 
-def test_output_defaults() -> None:
-    cfg = load_string("")
-    assert cfg.output.staves == "both"
-    assert cfg.output.key_signatures is True
-
-
 def test_every_family_has_a_pool_even_when_unconfigured() -> None:
     cfg = load_string("")
     assert sorted(cfg.pool) == sorted(vocabulary.accepted("family"))
@@ -127,7 +120,6 @@ def test_the_spec_example_config_loads() -> None:
     # §10's worked example, verbatim apart from the comments.
     cfg = load_string(
         '[instrument]\nprofile = "bass6"\n'
-        '\n[output]\nstaves = "both"\nkey_signatures = true\n'
         "\n[session]\ncount = 5\nhorizon = 14\nmax_notes = 96\n"
         "shape = { chromatic = 1, scales = 2, arpeggios = 1, intervals = 1 }\n"
         '\n[pool.scales]\nroots = "all"\n'
@@ -163,12 +155,6 @@ def test_unknown_instrument_key_is_rejected() -> None:
         load_string('[instrument]\nprofil = "bass4"')
     assert "profil" in str(exc.value)
     assert "profile" in str(exc.value)
-
-
-def test_unknown_output_key_is_rejected() -> None:
-    with pytest.raises(ConfigError) as exc:
-        load_string("[output]\nkey_signature = true")
-    assert "key_signatures" in str(exc.value)
 
 
 def test_unknown_pool_family_is_rejected_naming_the_families() -> None:
@@ -288,53 +274,6 @@ def test_non_ascending_tuning_names_both_the_config_key_and_the_index() -> None:
     assert "instrument.profile" in message
     assert "index 1" in message
     assert "ascending" in message
-
-
-# --------------------------------------------------------------------------
-# The output section
-# --------------------------------------------------------------------------
-
-
-def test_staves_accepts_every_documented_mode() -> None:
-    for mode in STAVES:
-        assert load_string(f'[output]\nstaves = "{mode}"').output.staves == mode
-
-
-def test_unknown_staves_mode_names_the_accepted_modes() -> None:
-    with pytest.raises(ConfigError) as exc:
-        load_string('[output]\nstaves = "tabs"')
-    assert "tabs" in str(exc.value)
-    assert "notation" in str(exc.value)
-
-
-def test_staves_must_be_a_string() -> None:
-    with pytest.raises(ConfigError) as exc:
-        load_string("[output]\nstaves = 2")
-    assert "output.staves" in str(exc.value)
-
-
-def test_key_signatures_must_be_a_boolean() -> None:
-    with pytest.raises(ConfigError, match="key_signatures") as exc:
-        load_string('[output]\nkey_signatures = "yes"')
-    assert "output.key_signatures" in str(exc.value)
-
-
-def test_key_signatures_defaults_to_true() -> None:
-    # §10 as amended, decision #27 superseding #9: the default prints the
-    # signature and spells diatonically, because that is what published
-    # practice material looks like and the reader is an instructor.
-    assert load_string("").output.key_signatures is True
-
-
-def test_key_signatures_can_be_turned_off() -> None:
-    # Off is decision #9's original intent, implemented properly: no asserted
-    # tonal centre, but still spelled correctly, with an explicit accidental
-    # on every altered tone.
-    assert load_string("[output]\nkey_signatures = false").output.key_signatures is False
-
-
-def test_key_signatures_can_be_stated_explicitly() -> None:
-    assert load_string("[output]\nkey_signatures = true").output.key_signatures is True
 
 
 # --------------------------------------------------------------------------

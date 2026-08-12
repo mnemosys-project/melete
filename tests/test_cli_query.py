@@ -58,10 +58,6 @@ TEMPLATE = """\
 [instrument]
 profile = "{profile}"
 
-[output]
-staves = "both"
-key_signatures = true
-
 [session]
 count = 3
 horizon = 14
@@ -464,10 +460,10 @@ def test_show_reports_the_recorded_instrument_not_the_current_configuration(
 def test_show_survives_a_configuration_it_could_not_load(
     project: Path, run: Callable[[list[str]], Result], node: Callable[[], None]
 ) -> None:
-    """`show` reads the record and nothing else, so a broken pool cannot stop it."""
+    """`show` reads the record and nothing else, so a broken config cannot stop it."""
     node()
     generate_a_history(run, days=1)
-    (project / "config.toml").write_text('[output]\nstaves = "treble"\n', encoding="utf-8")
+    (project / "config.toml").write_text("[session]\ncount = 0\n", encoding="utf-8")
 
     assert run(["show", RECORDED.isoformat()]).exit_code == 0
 
