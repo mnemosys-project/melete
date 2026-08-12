@@ -3,9 +3,9 @@
 This module isolates the *binary* (Node) and the *tool* it runs
 (`melete-render`); `emit` isolates the *syntax* (alphaTex). A change of Node
 distribution, or of how the renderer is invoked, lands here and nowhere else —
-the alphaTab counterpart of what decision #23 bought for LilyPond. A change of
-*renderer* is both modules and their golden files (spec §4, *The renderer
-boundary*, and melete#71).
+the same isolation decision #23 first bought for the original LilyPond adapter.
+A change of *renderer* is both modules and their golden files (spec §4, *The
+renderer boundary*, and melete#71).
 
 This is the only module in melete's alphaTab package that knows a Node binary
 and a renderer script exist. It takes alphaTex text and a directory, and returns
@@ -26,7 +26,8 @@ a silent failure:
 * **A missing renderer script is a hard error**, never a silent fallback. The
   script is the tool; without it there is nothing to run.
 
-Where this adapter *diverges* from the LilyPond one is the stream contract. The
+Where this adapter diverged from the original LilyPond one is the stream
+contract. The
 `.gp` is a binary ZIP, so the renderer writes it to **stdout as bytes** and this
 module captures those bytes without ever decoding them — `capture_output=True`
 with no `text=`/`encoding=`, which a text-mode capture would corrupt. Only

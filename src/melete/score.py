@@ -1,8 +1,8 @@
 r"""The Score IR — the seam between the families and the emitter (spec §4, §6).
 
-A family produces a `Score`; `lilypond/emit.py` consumes one. Neither imports
-the other, so a family never learns that LilyPond exists and the emitter never
-learns what a Dorian mode is. Everything here is pure data: this module knows
+A family produces a `Score`; the emitter (`alphatab/emit.py`) consumes one.
+Neither imports the other, so a family never learns that the renderer exists and
+the emitter never learns what a Dorian mode is. Everything here is pure data: this module knows
 how to *describe* an exercise and nothing else. It holds no fretboard logic —
 `instrument` owns that — and no rendering logic whatsoever.
 
@@ -18,7 +18,7 @@ A triplet of eighths is therefore three `Note`s of duration `1/8` inside a
 `Tuplet` with ratio `(3, 2)`, and it sounds a quarter note in total.
 
 This is the contract at this seam, and it is stated here — rather than left to
-be inferred — because `rhythm.py` and `lilypond/emit.py` sit on opposite sides
+be inferred — because `rhythm.py` and `alphatab/emit.py` sit on opposite sides
 of it. Written against different assumptions, every tuplet on every sheet would
 render at the wrong note value.
 
@@ -50,8 +50,9 @@ is handed, so the deeper structure this permits is latent, not yet produced.
 imply barlines and LilyPond inserts them — but the alphaTab renderer does not
 auto-bar, so a barring pass splits a `Voice` into `Measure`s and the alphaTex
 emitter emits one bar apiece. §7's short final measure is still not padded here.
-`Measure` is consumed only by the new emitter; the LilyPond emitter's inputs are
-untouched, which is what keeps this change additive.
+`Measure` is consumed only by the emitter; adding it alongside the (now-removed)
+LilyPond path left that emitter's inputs untouched, which is what kept the change
+additive.
 
 ## Frozen shallowly, and not hashable
 
@@ -102,7 +103,7 @@ class Note:
     holds the invariant relating the two: `pitch == tuning[string] + fret`.
 
     `finger` is first class because in chromatic permutation work the fingering
-    *is* the exercise, and LilyPond renders fingering marks natively.
+    *is* the exercise, and a notation renderer engraves fingering marks natively.
     """
 
     pitch: int  # absolute semitones, C4 = 60
@@ -144,17 +145,17 @@ class Tuplet:
 
     `ratio` is read as "numerator in the time of denominator": `(3, 2)` is the
     ordinary triplet, three written notes occupying the time of two, and maps
-    onto LilyPond's `\tuplet 3/2 { ... }`.
+    onto alphaTex's `{tu 3 2}`.
 
     The notes inside carry their **written** durations, unscaled. See the
     module docstring: the ratio is the only place the scaling lives.
 
     A member may itself be a `Tuplet`: the "one level, no more" rule was
     LilyPond-imposed and its construction-time prohibition is lifted (melete#87,
-    epic #1 §4). The static type stays `list[Note]` — the current walkers and the
-    LilyPond emitter handle only flat tuplets — so a nested tuplet is permitted to
-    build but is neither produced by the port's families nor consumed yet; the
-    alphaTex emitter flattens any it is handed.
+    epic #1 §4). The static type stays `list[Note]` — the current walkers handle
+    only flat tuplets — so a nested tuplet is permitted to build but is neither
+    produced by the families nor consumed as a nested bracket; the alphaTex
+    emitter flattens any it is handed.
     """
 
     ratio: tuple[int, int]  # (3, 2) = three in the time of two
@@ -196,8 +197,9 @@ class Measure:
     The LilyPond emitter never needed this: durations imply barlines and LilyPond
     inserts them. The alphaTab renderer does not auto-bar, so a barring pass
     groups a `Voice` into `Measure`s and the alphaTex emitter emits one bar per
-    `Measure`. Consumed only by the new pipeline; the LilyPond emitter's inputs
-    are unchanged (melete#87, epic #1 §4), which keeps this change additive.
+    `Measure`. Consumed only by the alphaTex pipeline; adding it left the
+    (now-removed) LilyPond emitter's inputs unchanged (melete#87, epic #1 §4),
+    which kept that change additive.
 
     Frozen shallowly like `Score`: the `voice` list cannot be rebound, though its
     contents are not deep-frozen. There is no membership check here — a `Measure`
@@ -343,11 +345,13 @@ def sounding_duration(voice: Voice) -> Fraction:
 
 
 #: The augmentations a single written note value can carry: no dots, one dot
-#: (×3/2), two dots (×7/4). This is the SAME writable set that `lilypond/emit.py`
-#: encodes in its `_AUGMENTATIONS`, duplicated here deliberately so the barring
-#: pass stays renderer-agnostic — it must not import the emitter (the renderer
-#: boundary, CLAUDE.md). The duplication is temporary: `emit.py` is deleted in
-#: the alphaTab port's task 10, after which this fact has a single home.
+#: (×3/2), two dots (×7/4). This is the SAME writable set the emitter encodes in
+#: its `_AUGMENTATIONS` (the original `lilypond/emit.py` encoded it too),
+#: duplicated here deliberately so the barring pass stays renderer-agnostic — it
+#: must not import the emitter (the renderer boundary, CLAUDE.md). The LilyPond
+#: emitter has since been removed (epic #46, Task 10); `alphatab/emit.py` now
+#: carries the emitter-side copy, and a future DRY pass could fold the two into a
+#: single shared constant if that is ever wanted.
 _WRITABLE_AUGMENTATIONS: tuple[Fraction, ...] = (
     Fraction(1),
     Fraction(3, 2),
@@ -360,7 +364,7 @@ def _split_writable(duration: Fraction) -> list[Fraction]:
 
     A *writable* value is a power-of-two note (whole, half, quarter, …) carrying
     zero, one or two dots: `duration / aug` is `1/2**k` for some `aug` in
-    `_WRITABLE_AUGMENTATIONS`. That is exactly the set the LilyPond emitter's
+    `_WRITABLE_AUGMENTATIONS`. That is exactly the set the emitter's
     `duration_token` accepts, mirrored here for the boundary reason above.
 
     A barline remainder is not always one such note — `5/8` is not — so it is
