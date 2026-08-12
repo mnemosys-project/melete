@@ -353,16 +353,6 @@ wheels = [
 ]
 
 [[package]]
-name = "lilypond"
-version = "2.25.12"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/b5/ab967fead46591193d14cceb5babf28be02c8f5333f907e46269cd97e912/lilypond-2.25.12-0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:9096134302daf82b7dd20d08b08a3199b9a6ec353ede4fb71e90a5affd8d874c", size = 42898654, upload-time = "2024-02-02T22:30:57.139Z" },
-    { url = "https://files.pythonhosted.org/packages/ea/75/63d89e71ccc5d551ad77630944f7187fe9a861410c9ac63d4f71aca0030d/lilypond-2.25.12-0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:68b72d24d542b03212a44672a71314d31138d3117542cff59b28f46dd5000106", size = 43898654, upload-time = "2024-02-02T22:31:02.492Z" },
-    { url = "https://files.pythonhosted.org/packages/1a/3d/6efca969f698ce3e52428d62ff2a1587312eb6cc9e9e4bd4bd688d54edff/lilypond-2.25.12-0-py3-none-win_amd64.whl", hash = "sha256:14711d62f22ddb9d5caf048deffdffced8f4d9d10cad96c3e3b68328bdbcee6c", size = 41323146, upload-time = "2024-02-02T22:31:08.329Z" },
-]
-
-[[package]]
 name = "markdown-it-py"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -388,11 +378,6 @@ name = "melete"
 version = "0.1.0"
 source = { editable = "." }
 
-[package.optional-dependencies]
-bundled-lilypond = [
-    { name = "lilypond" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -405,8 +390,6 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "lilypond", marker = "extra == 'bundled-lilypond'", specifier = "==2.25.12" }]
-provides-extras = ["bundled-lilypond"]
 
 [package.metadata.requires-dev]
 dev = [

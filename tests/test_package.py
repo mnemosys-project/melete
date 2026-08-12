@@ -39,18 +39,11 @@ def test_there_are_no_runtime_python_dependencies() -> None:
     Adding a runtime dependency is a design change, not a detail, so it should
     fail here and be argued for rather than arrive unnoticed.
 
-    LilyPond is required but is a binary on PATH, not a Python package: the
-    PyPI redistribution has no aarch64 wheel for any release, so it cannot be
-    a hard dependency on the hardware this is developed and used on.
+    Rendering is a toolchain on PATH, not a Python package: the vendored
+    `melete-render/` Node tool (which drives alphaTab) turns emitted alphaTex
+    into a Guitar Pro `.gp`, so it is an environment concern rather than a hard
+    dependency of the package.
     """
     with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
         pyproject = tomllib.load(handle)
     assert pyproject["project"]["dependencies"] == []
-
-
-def test_the_bundled_lilypond_extra_stays_pinned() -> None:
-    """An unpinned range would silently change the renderer between installs."""
-    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
-        pyproject = tomllib.load(handle)
-    extras = pyproject["project"]["optional-dependencies"]
-    assert extras["bundled-lilypond"] == ["lilypond==2.25.12"]
