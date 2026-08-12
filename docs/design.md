@@ -24,10 +24,11 @@ spec, the spec is correct and this page is stale.
 Melete is a command-line tool that generates daily bass practice sheets. It
 reads a configuration file describing an instrument and a pool of exercise
 parameters, selects a small set of parameterized exercises with deliberate
-variety, and engraves them into a single printable PDF per day containing both
+variety, and renders them into a single Guitar Pro file per day containing both
 standard notation and tablature.
 
-The engraver is LilyPond today and is being replaced; see
+The renderer is alphaTab: melete emits alphaTex and renders a Guitar Pro `.gp`
+through the vendored `melete-render` Node tool; see
 [The renderer boundary](#the-renderer-boundary).
 
 The success criterion is practical, not architectural: run one command each
@@ -52,7 +53,7 @@ melete generate
 
 ## Module layout
 
-`[LP]` marks the two modules that know the renderer exists. Everything
+`[AT]` marks the two modules that know the renderer exists. Everything
 unmarked is renderer-agnostic.
 
 ```text
@@ -72,9 +73,9 @@ src/melete/
     chromatic.py        }
   rhythm.py             Cross-cutting modifier: Score -> Score
   selection.py          Coverage-aware sampling; ExerciseSpec, WeightInputs
-  lilypond/
-    emit.py       [LP]  Score -> LilyPond source text. Knows the syntax.
-    render.py     [LP]  Adapter over the LilyPond binary. Knows the binary.
+  alphatab/
+    emit.py       [AT]  Score -> alphaTex source text. Knows the syntax.
+    render.py     [AT]  Adapter over the melete-render Node tool. Knows the binary.
   session.py            Writes and reads sessions/YYYY-MM-DD/
   config.py             Loads and validates config.toml
   cli.py                Argument parsing; wires the pipeline
@@ -82,8 +83,8 @@ src/melete/
 
 The pipeline runs left to right through those modules: config selects an
 exercise, a family generates a `Score`, the rhythm modifier rewrites it, the
-emitter turns it into renderer source text, and the renderer produces the PDF.
-Only the last two stages name a renderer.
+emitter turns it into alphaTex source text, and the renderer produces the
+Guitar Pro `.gp`. Only the last two stages name a renderer.
 
 ## What the design is made of
 
@@ -118,53 +119,51 @@ makes `melete replay` reproduce a past sheet exactly.
 Two boundaries carry the structure. Understand these before changing anything.
 
 **`score.py` is the seam.** Families produce a `Score`; the emitter consumes
-one. Neither imports the other. A family never learns that LilyPond exists; the
+one. Neither imports the other. A family never learns that alphaTab exists; the
 emitter never learns what a Dorian mode is. Every family is therefore a pure
 function, testable without rendering anything.
 
-**`lilypond/` is the blast door.** Two modules, and the split between them is
-what the name is about: `render.py` is the only module aware that a LilyPond
-*binary* exists, and `emit.py` is the only module that knows LilyPond *syntax*.
-If the LilyPond **distribution** changes, exactly one file changes — that was
-paid out once, when the PyPI redistribution turned out to have no aarch64 wheel
-and the binary moved to `PATH`, at a cost of one line of `pyproject.toml` and no
-application code. A change of **renderer** is wider: it is both modules and
-their golden files. See below.
+**`alphatab/` is the blast door.** Two modules, and the split between them is
+what the name is about: `render.py` is the only module aware that a renderer
+*binary* (Node, driving melete-render) exists, and `emit.py` is the only module
+that knows alphaTex *syntax*. If the way the renderer is invoked changes, exactly
+one file changes. A change of **renderer** is wider: it is both modules and their
+golden files. See below.
 
 ## The renderer boundary
 
-Melete engraves through LilyPond and **that renderer is being replaced.** The
-evaluation is
+Melete renders through alphaTab: the emitter produces alphaTex and the renderer
+drives the vendored `melete-render` Node tool to write a Guitar Pro `.gp`. This
+is the successor to the original LilyPond pipeline, whose evaluation is
 [`melete#71`](https://github.com/mnemosys-project/melete/issues/71) — what
-LilyPond cost, where it falls short, and what a successor must do. Engraving
+LilyPond cost, where it fell short, and what a successor had to do. Engraving
 quality was never the problem. The alternatives surveyed are in
 [`docs/reports/`](reports/).
 
-None of the LilyPond material in this repository is deprecated. It is the
-record of what was learned about engraving from this IR, and it is the
-migration's input.
+The v1 LilyPond pipeline was removed in epic #46, Task 10; it last rendered at
+commit `a2b26cb` (2026-08-12), the parent of the removal commit — a reference
+pointer in git history, not a restorable artifact.
 
 **Renderer-specific — the whole of it:**
 
-- `src/melete/lilypond/emit.py` — the LilyPond syntax, including the
-  `\tabFullNotation` branch and the written-pitch convention below
-- `src/melete/lilypond/render.py` — the binary, its invocation and its
-  failure modes
-- `tests/lilypond/golden/*.ly` — the four golden files, and golden-file
-  comparison as the verification strategy
-- LilyPond as a system prerequisite: `vergil.toml`'s `system-packages`, the
-  `bundled-lilypond` extra, and the `integration` pytest marker
+- `src/melete/alphatab/emit.py` — the alphaTex syntax, including the positional
+  `<fret>.<string>` notes and the written-pitch handling below
+- `src/melete/alphatab/render.py` — the Node binary and the melete-render tool,
+  their invocation and their failure modes
+- `tests/alphatab/` — the emitter and renderer tests and the `golden/*.atex`
+  fixtures they compare against
+- alphaTab as a prerequisite: `vergil.toml`'s `[container].build-command`
+  installs `@coderline/alphatab`, and Node is an environment prerequisite
 
 **Everything else survives**, which is nearly the whole codebase: `theory`
 including the entire spelling model, `instrument` and the fretboard model,
 `score` and the IR, all four families, `rhythm`, `selection`, `config`,
-`session`, and the CLI apart from wiring. `melete#71` measures the
-renderer-specific part at roughly 210 statements.
+`session`, and the CLI apart from wiring.
 
 It survives because `SpelledPitch` is notation-neutral by construction — a
-letter, an alteration and an octave, with no LilyPond in it — and the IR
-carries no renderer at all. Any successor that accepts a spelled pitch rather
-than an integer inherits the spelling model intact.
+letter, an alteration and an octave, with no renderer in it — and the IR carries
+no renderer at all. alphaTab accepts a spelled pitch rather than an integer, so
+it inherited the spelling model intact.
 
 The authoritative statement of this boundary, in both directions and with the
 specification section for each element, is epic #1's spec §4, *The renderer
@@ -189,28 +188,28 @@ renderer-agnostic and is not negotiable.
 
 ## The written-pitch convention
 
-Renderer-specific, one owner, and worth knowing before you touch `emit.py`.
+Renderer-specific, one owner, and worth knowing before you touch
+`alphatab/emit.py`.
 
-Bass guitar is written an octave above its sound. Melete owns that octave: the
-emitter writes the **printed** pitch — `note.pitch` plus twelve — under a
-**plain** `\clef "bass"` or `\clef "treble"`. The notes and the `stringTunings`
-chord are transposed together and must always move together, because LilyPond
-derives each fret number from the pitch against the declared tuning.
+The alphaTab emitter writes **positional** notes: a beat is `<fret>.<string>`,
+and alphaTab derives the sounding pitch from the declared tuning and fret. There
+is therefore no octave transposition to apply in the emitter — the tuning melete
+declares is sounding pitch, and the notation shows sounding pitch directly on a
+plain `\clef bass` (the spike's human-reviewed decision; see `emit.py`'s module
+docstring). The `.gp` diverges from the old v1 `.pdf` on octave *display* only.
 
-The clef must therefore not transpose as well. `\clef "bass_8"` does not
-*describe* an octave already applied, it *performs* one. Melete transposed and
-octavated for the whole of Phase B, so every exercise engraved two octaves above
-its sound while the tablature stayed correct. Over 2,700 tests at 100% branch
-coverage passed over it, because the tests assert the emitted text and the
-emitted text was exactly what was intended. It was found by rendering a sheet
-and looking at it (`melete#58`, fixed in `melete#66`).
-
-The alternative — emit sounding pitch and let an octavated clef do the work —
-is a defensible convention and a successor renderer may expect it; LilyPond's
-own `bass-six-string-tuning` is defined that way.
-[`melete#69`](https://github.com/mnemosys-project/melete/issues/69) records it
-and why it was closed unbuilt. Until a renderer changes, the convention here is
-the printed pitch, and `emit.py`'s module docstring is where it is specified.
+This is a deliberate departure from the v1 LilyPond convention, kept here as
+design history. LilyPond derived each fret from the *written* pitch, so melete
+wrote the printed pitch — `note.pitch` plus twelve — under a plain
+`\clef "bass"`, transposing the notes and the `stringTunings` chord together. An
+octavating clef would have double-applied the shift: melete transposed *and*
+octavated for the whole of Phase B, engraving every exercise two octaves above
+its sound while the tablature stayed correct, and over 2,700 tests at 100% branch
+coverage passed over it because they asserted the emitted text and the emitted
+text was exactly what was intended. It was found by rendering a sheet and looking
+at it (`melete#58`, fixed in `melete#66`), and
+[`melete#69`](https://github.com/mnemosys-project/melete/issues/69) records the
+sounding-pitch alternative that alphaTab now realises.
 
 ## Reference documents
 
@@ -221,13 +220,12 @@ the printed pitch, and `emit.py`'s module docstring is where it is specified.
 - [repository-standards.md](repository-standards.md) — repository profile,
   toolchain, the checks that must pass, and the deliberate departures from
   the Vergil default.
-- [reports/](reports/) — research findings. The renderer question is an open
-  one only here: the notation display targets and viability survey, the
-  LilyPond/Guitar Pro annotation gap, and the Guitar Pro 8 generation
-  feasibility study.
+- [reports/](reports/) — the research findings behind the renderer decision:
+  the notation display targets and viability survey, the LilyPond/Guitar Pro
+  annotation gap, and the Guitar Pro 8 generation feasibility study.
 - [`melete#71`](https://github.com/mnemosys-project/melete/issues/71) — the
-  LilyPond evaluation. Not a file in this repository, but it is the reason
-  the renderer boundary above is marked at all.
+  LilyPond evaluation. Not a file in this repository, but it is why the
+  renderer boundary exists and why the migration to alphaTab was made.
 
 ## Authoritative documents
 

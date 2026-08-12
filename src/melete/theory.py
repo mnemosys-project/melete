@@ -20,7 +20,7 @@ staves disagreed silently.
 
 `spell` is the missing layer. It takes a `Key` and returns notation-neutral
 `SpelledPitch` values — letter, alteration in semitones, octave — and knows
-nothing about LilyPond or Unicode accidentals; `lilypond/emit.py` writes them
+nothing about alphaTex or Unicode accidentals; `alphatab/emit.py` writes them
 down.
 
 **The tonic's letter is derived, never stored.** `Key.tonic` stays a pitch
@@ -70,8 +70,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-#: Superseded by `spell`: an all-flats table cannot distinguish F♯ from G♭ and
-#: so cannot spell a key (spec §10a). `lilypond/emit.py` is its last consumer.
+#: Superseded by `spell` for notation: an all-flats table cannot distinguish F♯
+#: from G♭ and so cannot spell a key (spec §10a). Nothing reads it to spell a
+#: staff any more; its surviving consumers use it only for pitch-class display
+#: names (the families' exercise titles) and for the pitch-class count.
 PITCH_CLASSES: tuple[str, ...] = (
     "C",
     "Db",
@@ -256,7 +258,7 @@ class SpelledPitch:
     """One note as it is *written*, in no particular notation.
 
     `alteration` is semitones — −2 to +2 — and never a glyph, so nothing here
-    commits to LilyPond, to Unicode, or to English note names.
+    commits to alphaTex, to Unicode, or to English note names.
 
     `octave` belongs to the letter rather than to the sounding pitch, because
     that is what an octave number means on a staff: C♭5 is written a letter

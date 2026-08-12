@@ -1,17 +1,17 @@
 r"""Score to alphaTex source text (epic #46, Task 6).
 
-This module is a pass-through, exactly as `lilypond/emit.py` is. It receives a
-`Score` — pitches, string and fret positions, and **written** durations — plus
+This module is a pass-through, as the original `lilypond/emit.py` was. It receives
+a `Score` — pitches, string and fret positions, and **written** durations — plus
 the `Measure`s a `bar()` pass produced, and turns them into alphaTex source.
 It never learns what a Dorian mode is, and it never learns that the alphaTab
-renderer binary exists: `render` (a later task) is the only module aware of the
-binary, and nothing here shells out or touches the filesystem.
+renderer binary exists: `render` is the only module aware of the binary, and
+nothing here shells out or touches the filesystem.
 
-**This module is renderer-specific**, the alphaTex counterpart of
-`lilypond/emit.py`. Everything it consumes — `theory` and the whole spelling
-model, `instrument`, `score`, `bar()` — is renderer-agnostic and shared with
-the LilyPond path until that path is removed (epic #46, Task 10). It does **not**
-import `lilypond`; the two emitters meet only at the `Score`/`Measure` seam.
+**This module is renderer-specific** — melete's only emitter, and the successor
+to the original `lilypond/emit.py` (removed in epic #46, Task 10). Everything it
+consumes — `theory` and the whole spelling model, `instrument`, `score`,
+`bar()` — is renderer-agnostic. The two emitters met only at the `Score`/`Measure`
+seam; the LilyPond one is now gone, and this is the single emitter that remains.
 
 ## Every syntax token here is spike-confirmed (epic #46, Task 1)
 
@@ -26,7 +26,7 @@ re-verified for this task by parsing probe alphaTex back through the real
   clef read the fret off the written pitch); alphaTab reads sounding pitch off
   the tuning directly. The tuning we declare is sounding pitch, and the notation
   shows sounding pitch on a plain bass clef (the spike's Q3b decision).
-* **The string convention is reversed**, exactly as in LilyPond: the IR indexes
+* **The string convention is reversed**, as it was under LilyPond: the IR indexes
   strings from 0 as the lowest; alphaTex numbers from 1 as the highest. See
   `_alphatex_string`.
 * **`\clef bass`, no `\ottava`.** The spike's final, human-reviewed decision:
@@ -42,14 +42,15 @@ re-verified for this task by parsing probe alphaTex back through the real
 alphaTab spells the notation staff itself from the positional note, so faithful
 spelling means telling it *both* the key and, where the key alone is not enough,
 the exact accidental. Both are expressible, so there is **no fidelity gap** with
-the LilyPond path (verified against the importer, epic #46 Task 6):
+the original LilyPond path (verified against the importer, epic #46 Task 6):
 
 * **`\ks <name>`** sets the key signature (round-trips to alphaTab's
   `KeySignature`, −7…+7). We derive it from `score.key` through `theory`: a
   tier-1 mode signs with its own diatonic collection, a tier-2 scale with its
   parent's, and a tier-3/keyless exercise takes no signature — the same three
-  cases `lilypond/emit.py`'s `_key_lines` answers. Under the signature alphaTab
-  spells every diatonic pitch to `theory`'s letter with no accidental glyph.
+  cases the original `lilypond/emit.py`'s `_key_lines` answered. Under the
+  signature alphaTab spells every diatonic pitch to `theory`'s letter with no
+  accidental glyph.
 * **`{acc <glyph>}`** forces one note's accidental (round-trips to
   `NoteAccidentalMode.Force*`). We force a note **iff** its spelling differs from
   what the signature already gives its letter — which is exactly LilyPond's
@@ -58,8 +59,8 @@ the LilyPond path (verified against the importer, epic #46 Task 6):
   pitch class plus a chosen accidental names exactly one letter — `theory`'s.
 
 The spelling itself is `theory.spell`'s, asked for and never decided here, as in
-`lilypond/emit.py`. Only the *rendering* of that spelling — signature token plus
-forced glyph — is alphaTab knowledge and belongs here.
+the original `lilypond/emit.py`. Only the *rendering* of that spelling — signature
+token plus forced glyph — is alphaTab knowledge and belongs here.
 
 ## Ties are emitted onto the destination (spike Q2)
 
@@ -81,9 +82,9 @@ The rhythm is exact; only a true nested bracket (a non-requirement) is lost.
 
 ## Instructional prose is the session's, not an exercise's (spec §12)
 
-As in `lilypond/emit.py`, `Score.instruction` never reaches an exercise. A book
-carries the session title and the date/instrument subtitle; the per-exercise
-`\section` marker names each exercise by number and title.
+As in the original `lilypond/emit.py`, `Score.instruction` never reaches an
+exercise. A book carries the session title and the date/instrument subtitle; the
+per-exercise `\section` marker names each exercise by number and title.
 """
 
 from dataclasses import dataclass
@@ -125,9 +126,9 @@ _FLAT_ORDER = "BEADGCF"
 #: `theory`'s scale identifiers that carry a key signature: the seven diatonic
 #: modes. A tier-1 mode signs with itself and a tier-2 scale with its parent
 #: (always one of these); a tier-3 symmetric scale resolves to none of them and
-#: takes no signature. This mirrors `lilypond/emit.py`'s `_LILYPOND_MODES` keys —
-#: the same "which scales have a signature" question, one table each side of the
-#: boundary until the LilyPond path is removed (epic #46, Task 10).
+#: takes no signature. This mirrored `lilypond/emit.py`'s `_LILYPOND_MODES` keys —
+#: the same "which scales have a signature" question. The LilyPond path has been
+#: removed (epic #46, Task 10), so this table is now the sole home for that answer.
 _DIATONIC_MODES = (
     "ionian",
     "dorian",
@@ -151,9 +152,10 @@ _KS_NAMES = ("cb", "gb", "db", "ab", "eb", "bb", "f", "c", "g", "d", "a", "e", "
 _ACCIDENTAL_GLYPH = {2: "x", 1: "#", 0: "n", -1: "b", -2: "bb"}
 
 #: Written duration as a multiple of the undotted note it augments — no dots, one
-#: dot (×3/2), two dots (×7/4). The same writable set `lilypond/emit.py` and
-#: `score._split_writable` encode; duplicated across the boundary deliberately
-#: (the emitter must not import the other renderer's), and `bar()` only ever
+#: dot (×3/2), two dots (×7/4). This encodes, as `(dots, augmentation)` pairs for
+#: token emission, the same writable set `score._split_writable` uses (and that
+#: the original `lilypond/emit.py` encoded); it is duplicated across the renderer
+#: boundary deliberately so `score` stays renderer-agnostic, and `bar()` only ever
 #: hands us values from exactly this set.
 _AUGMENTATIONS: tuple[tuple[int, Fraction], ...] = (
     (0, Fraction(1)),
@@ -166,8 +168,8 @@ _AUGMENTATIONS: tuple[tuple[int, Fraction], ...] = (
 class Cover:
     """The session's cover content: the date and the instrument (spec §12).
 
-    The alphaTab counterpart of `lilypond.emit.Cover`, defined here rather than
-    imported so the two renderers never depend on each other across the seam.
+    The successor to the original `lilypond.emit.Cover`, defined in the emitter
+    rather than in `score` so the renderer-agnostic side carries no cover type.
     Everything else about the session — one `\\section` per exercise — is derived
     from the scores themselves, so the two cannot drift apart.
     """
@@ -190,8 +192,9 @@ def duration_token(written: Fraction) -> tuple[int, int]:
 
     A value that is not a power-of-two note with zero, one or two dots has no
     notehead and raises — the written-duration contract of the `score` seam
-    (decision #16), enforced here as `lilypond/emit.py`'s `duration_token`
-    enforces it. A sounding triplet eighth is `1/12` and there is no twelfth
+    (decision #16), enforced here as the original `lilypond/emit.py`'s
+    `duration_token` enforced it. A sounding triplet eighth is `1/12` and there is
+    no twelfth
     note; it belongs inside a `Tuplet`, whose ratio scales it.
     """
     for dots, augmentation in _AUGMENTATIONS:
@@ -211,7 +214,7 @@ def duration_token(written: Fraction) -> tuple[int, int]:
 def _alphatex_string(index: int, string_count: int) -> int:
     """The alphaTex string number for an IR string index.
 
-    **The two conventions are reversed**, exactly as for LilyPond: the IR indexes
+    **The two conventions are reversed**, as they were for LilyPond: the IR indexes
     strings from 0 as the *lowest* (spec §5); alphaTex numbers from 1 as the
     *highest*. On a six-string bass, IR index 5 is alphaTex string 1 and IR index
     0 is string 6. Getting it wrong puts every fret on the wrong line while the
@@ -240,8 +243,9 @@ def _signature(key: theory.Key | None) -> tuple[str | None, dict[str, int]]:
     r"""The `\ks` token for a key, and each letter's alteration under it.
 
     Three cases take no signature, and each is a real answer rather than a
-    fallback — the same three `lilypond/emit.py`'s `_key_lines` gives nothing
-    for. `key` is `None` (no tonal centre, as the chromatic family produces); the
+    fallback — the same three the original `lilypond/emit.py`'s `_key_lines` gave
+    nothing for. `key` is `None` (no tonal centre, as the chromatic family
+    produces); the
     scale is tier-3 symmetric (no parent to inherit a signature from); otherwise
     the signature is the diatonic collection of a tier-1 mode or a tier-2 scale's
     parent. In the no-signature cases every altered note is forced explicitly,

@@ -13,8 +13,8 @@ versions = ["3.14"]
 # and the CLI end-to-end smoke test - both exist, are marked
 # `@pytest.mark.integration`, and are never deselected, so they execute in
 # the ordinary pytest run and are already covered in CI by
-# `test / unit / 3.14`, against the LilyPond binary the container carries
-# (see [container].system-packages below).
+# `test / unit / 3.14`, against the alphaTab renderer the container installs
+# (see [container].build-command below).
 #
 # Setting this true would add `test / integration / 3.14` to the branch
 # ruleset's required checks, but the shared ci-test.yml@v2.1 emits only
@@ -28,7 +28,7 @@ integration-tests = false
 
 [container]
 env-prefixes = []
-system-packages = ["lilypond"]
+system-packages = []
 # Bake the alphaTab renderer's dependency into the image. The install must land
 # OUTSIDE /workspace (the runtime bind-mount masks anything under it), so this is
 # a GLOBAL install; the tooling exposes the npm global root on NODE_PATH, which
