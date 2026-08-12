@@ -1,7 +1,7 @@
 # melete
 
 Practice exercise generator. Parameterized bass exercises engraved as
-standard notation and tablature, one printable sheet per day.
+standard notation and tablature, one Guitar Pro file per day.
 
 ## Table of Contents
 
@@ -14,12 +14,13 @@ standard notation and tablature, one printable sheet per day.
 ## Status
 
 v1 is built and in use: melete generates, renders and replays practice
-sheets end to end, and the output has been validated on paper.
+sheets end to end, and the output has been validated.
 
-Melete currently engraves through LilyPond, and **that renderer is being
-replaced.** Nearly all of the code outlives the change — see
-[the renderer boundary](docs/design.md#the-renderer-boundary) for which
-modules do not.
+Melete engraves to Guitar Pro `.gp` files through alphaTab: it emits
+alphaTex and renders with the vendored `melete-render` Node tool. Nearly
+all of the code is renderer-agnostic — see
+[the renderer boundary](docs/design.md#the-renderer-boundary) for the two
+modules that are not.
 
 ## Overview
 
@@ -28,9 +29,12 @@ authoritative specification.
 
 ## Getting Started
 
-LilyPond is a prerequisite, as a binary on `PATH` rather than a Python
-package — `apt-get install lilypond` on Debian or Ubuntu, `brew install
-lilypond` on macOS.
+The renderer's toolchain is Node with alphaTab, not a Python package. The
+dev and CI container bakes it in — `@coderline/alphatab` installed globally
+at image-build time, on top of the Node already in the base image — so
+nothing is required there. A host install instead needs Node on `PATH` and
+the `melete-render/` dependencies present (`npm install` in that
+directory). Melete itself declares no runtime Python dependency.
 
 ```bash
 uv tool install .
@@ -52,7 +56,7 @@ you want the sheets to land in.
 - [docs/repository-standards.md](docs/repository-standards.md) — the
   toolchain, the checks, and where melete departs from the default.
 - [docs/reports/](docs/reports/) — research findings, including the
-  survey of renderers that could succeed LilyPond.
+  survey of renderers that led to alphaTab succeeding LilyPond.
 
 ## License
 

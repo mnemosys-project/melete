@@ -175,59 +175,46 @@ Two things that look like post-merge workflows are not:
 
 ## External tooling dependencies
 
-### LilyPond — a binary on `PATH`, not a Python package
+### alphaTab — a Node dependency baked into the image, not a Python package
 
-**Melete has no runtime Python dependencies.** LilyPond is required, but
-as an external binary. This is recorded as **decision #23** in the
-epic's specification (§16, superseding #13), and it is not a stylistic
-choice: the PyPI `lilypond`
-redistribution publishes **x86_64 wheels only**, across all sixteen
-releases from 2.24.1 to 2.25.12. No aarch64 build has ever existed.
-The dev container is arm64 Debian 13 and the development host is Apple
-Silicon, so declaring it as a dependency makes `uv sync` fail outright on
-both. Upstream publishes `darwin-arm64` from 2.27.0 onward but no
-`linux-arm64` binary at any version, so forking the repackage would not
-rescue the container either.
+**Melete has no runtime Python dependency.** The renderer's dependency
+lives outside Python entirely: melete emits alphaTex, and the vendored
+`melete-render/` Node tool renders it to a Guitar Pro `.gp` through
+alphaTab. Node itself is in the container's base image; alphaTab is added
+on top.
 
-Where the binary comes from:
+Where the dependency comes from:
 
-| Context           | Source                                              |
-| ----------------- | --------------------------------------------------- |
-| Dev / CI container | `[container].system-packages = ["lilypond"]` in `vergil.toml` |
-| Debian / Ubuntu host | `apt-get install lilypond` — trixie ships 2.24.4 for arm64 |
-| macOS host        | Homebrew, or the upstream `darwin-arm64` tarball (2.27.0+) |
-| x86_64, any       | Opt-in extra: `uv sync --extra bundled-lilypond`     |
+| Context            | Source                                              |
+| ------------------ | --------------------------------------------------- |
+| Dev / CI container | `[container].build-command = "npm install -g @coderline/alphatab@1.8.4"` in `vergil.toml` |
+| Host               | Node on `PATH`, plus `melete-render/`'s dependencies (`npm install` in that directory) |
 
-Notes that matter when reading versions: LilyPond follows the GNU
-even/odd convention, so **2.24.4 is a stable release and 2.25.12 is a
-development snapshot**. The `bundled-lilypond` extra pins exactly
-(`lilypond==2.25.12`) because the package is not tracking upstream and a
-range would silently change the renderer.
+The container bakes alphaTab in at **image-build time** rather than
+installing it per run. The install must land **outside `/workspace`** — the
+runtime bind-mount masks anything under it — so it is a *global* npm
+install, and the tooling exposes the npm global root on `NODE_PATH`, which
+CommonJS `require()` honours (`melete-render` is CommonJS for exactly this
+reason). The version is pinned in `vergil.toml` so a bump is a tracked
+config edit, and `build-cache-files` declares
+`melete-render/package-lock.json` so a resolved-tree change rebuilds the
+image.
 
-The container carries the package through Vergil's repo-specific system
-dependency mechanism, adopted after
-[`vergil-tooling#2718`](https://github.com/vergil-project/vergil-tooling/issues/2718).
-On the **host**, LilyPond is a prerequisite the user must satisfy before
-melete works; because the prerequisite is invisible until something
-fails, spec §13 requires a missing binary to produce an explicit message
-naming the resolution, never a stack trace.
+On the **host**, alphaTab is a prerequisite the user must satisfy before
+melete renders; because the prerequisite is invisible until something
+fails, a missing Node produces an explicit message naming the resolution,
+never a stack trace.
 
-`src/melete/lilypond/render.py` is the only module that knows a binary
-exists. That boundary is deliberate, and it held: the amendment that
-withdrew the Python dependency changed one line of `pyproject.toml` and
-no application code.
+`src/melete/alphatab/render.py` is the only module that knows a renderer
+binary exists. That boundary is deliberate: a change to how the renderer is
+invoked touches exactly that one module.
 
-Two open threads a contributor should know about before investing here:
+One open thread a contributor should know about before investing here:
 
-- [`melete#21`](https://github.com/mnemosys-project/melete/issues/21) —
-  publishing our own aarch64 wheels, which would restore the
-  zero-prerequisite install.
-- [`melete#71`](https://github.com/mnemosys-project/melete/issues/71) —
-  the LilyPond evaluation. **The renderer is a candidate for
-  replacement**, on the basis of guitar-specific notation requirements
-  this project has not yet exercised. Nothing is decided, but treat the
-  LilyPond emitter as provisional rather than settled, and read #71
-  before building deeply against it.
+- [`melete#82`](https://github.com/mnemosys-project/melete/issues/82) —
+  `melete-render/` is a vendored, acknowledged extraction-bound technical
+  debt. It is deliberately a "dumb" alphaTex → `.gp` renderer with no
+  musical knowledge; read #82 before building it out in place.
 
 ### Everything else comes from the container
 
@@ -332,7 +319,7 @@ reduction in testing.** The `@pytest.mark.integration` tests — the
 renderer integration test and the CLI end-to-end smoke tests — are never
 deselected: `addopts` is only `--strict-markers`, so they execute in the
 ordinary pytest run and are already covered in CI by `test / unit /
-3.14`, against the LilyPond binary the container carries.
+3.14`, against the alphaTab renderer the container installs.
 
 What the flag switches off is CI's *claim* to run a suite it has no job
 to run. Setting it `true` adds `test / integration / 3.14` to the branch
@@ -346,7 +333,7 @@ fixed by setting this false, and that
 revisited.
 
 Two of the three preconditions for flipping it back are met: the
-container carries the binary
+container carries the renderer
 ([`vergil-tooling#2718`](https://github.com/vergil-project/vergil-tooling/issues/2718)),
 and
 [`vergil-tooling#2720`](https://github.com/vergil-project/vergil-tooling/issues/2720)
@@ -362,11 +349,11 @@ See [Repository profile](#repository-profile). Melete has no deployment
 pipeline and no environments, so `application-promotion` would describe
 machinery that does not exist.
 
-### No runtime dependencies, and a platform-gated extra
+### No runtime Python dependencies
 
-`[project].dependencies` is empty and stays empty. The only declared
-package relationship to LilyPond is the opt-in `bundled-lilypond`
-extra, which resolves on x86_64 alone. See
+`[project].dependencies` is empty and stays empty. The renderer's
+dependency is Node with alphaTab, which lives outside Python entirely —
+there is no package relationship to it in `pyproject.toml`. See
 [External tooling dependencies](#external-tooling-dependencies).
 
 ### No documentation site
