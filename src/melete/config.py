@@ -20,9 +20,7 @@ never keeps one of its own: identifier axes are validated against
 `InstrumentProfile`. A hardcoded list here would be a second source of truth
 and would drift from the registry the families dispatch on.
 
-One vocabulary is genuinely local and is stated as such below: `STAVES`, §10's
-output switch, which is not a sampled axis and therefore has nowhere else to
-live. Everything else this module needs to name is read from whoever owns it —
+Everything this module needs to name is read from whoever owns it —
 identifiers from `vocabulary`, ranges from the `InstrumentProfile`, and the
 per-family tempo defaults from `families.REGISTRY`, because §7 assigns the
 tempo range to the family (decision #20).
@@ -57,31 +55,6 @@ if TYPE_CHECKING:
 #: are integers, and the two structured axes — `permutation` and `string_set` —
 #: are tuples of integers.
 AxisValue = str | int | tuple[int, ...]
-
-#: The staff-mode switch of §10. Not a sampled axis and therefore deliberately
-#: absent from `vocabulary`, which enumerates the §7 and §8 parameter axes: it
-#: is an output setting, so this module owns it and this is its only spelling.
-STAVES: tuple[str, ...] = ("both", "tab", "notation")
-
-#: §10's notation convention (decision #27, superseding #9). Both settings
-#: spell every note correctly for the key; they differ only in whether the
-#: signature is printed.
-#:
-#: * `True`, the default: print the signature — `\key fis \dorian` — and spell
-#:   diatonically. That is the fewest accidentals, it is what published
-#:   practice material looks like, and the primary reader of the notation
-#:   staff is an instructor.
-#: * `False`: print no signature, asserting no tonal centre, but still spell
-#:   correctly — F♯ G♯ A B C♯ D♯ E, with an explicit accidental on every
-#:   altered tone.
-#:
-#: Decision #9 defaulted this off, and the reasoning about *signatures* was
-#: sound; what was wrong was that it conflated printing a signature with
-#: spelling a note. Implemented as "notate in C with explicit accidentals", it
-#: engraved F♯ Dorian as G♭ A♭ B𝄫 C♭ D♭ E𝄫 F♭ — a different key, not a neutral
-#: one. `False` is that decision's original intent, finally implemented as a
-#: presentation choice rather than as a broken spelling.
-DEFAULT_KEY_SIGNATURES = True
 
 DEFAULT_COUNT = 5
 DEFAULT_HORIZON = 14
@@ -128,18 +101,6 @@ class ConfigError(ValueError):
 # --------------------------------------------------------------------------
 # The public shape
 # --------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class OutputConfig:
-    """§10's `[output]`: what gets engraved.
-
-    `key_signatures` selects between two correct notations rather than
-    between a correct one and a neutral one — see `DEFAULT_KEY_SIGNATURES`.
-    """
-
-    staves: str
-    key_signatures: bool
 
 
 @dataclass(frozen=True)
@@ -191,7 +152,6 @@ class Config:
     """A validated configuration. Every field is resolved, never raw TOML."""
 
     instrument: InstrumentProfile
-    output: OutputConfig
     session: SessionConfig
     pool: Mapping[str, FamilyPool]
     rhythm: RhythmPool
@@ -232,12 +192,6 @@ def _table(key: str, raw: object) -> dict[str, Any]:
 def _string(key: str, raw: object) -> str:
     if not isinstance(raw, str):
         _fail(key, f"expected a string, got {raw!r}")
-    return raw
-
-
-def _boolean(key: str, raw: object) -> bool:
-    if not isinstance(raw, bool):
-        _fail(key, f"expected true or false, got {raw!r}")
     return raw
 
 
@@ -596,23 +550,6 @@ def _explicit_profile(table: Mapping[str, Any]) -> InstrumentProfile:
         raise ConfigError(msg) from exc
 
 
-def _output(raw: object) -> OutputConfig:
-    section = _table("output", raw)
-    _reject_unknown("output", section, ("staves", "key_signatures"))
-
-    staves = _string("output.staves", section.get("staves", STAVES[0]))
-    if staves not in STAVES:
-        _fail("output.staves", f"unknown staff mode {staves!r}", STAVES)
-
-    return OutputConfig(
-        staves=staves,
-        key_signatures=_boolean(
-            "output.key_signatures",
-            section.get("key_signatures", DEFAULT_KEY_SIGNATURES),
-        ),
-    )
-
-
 def _shape(raw: object) -> dict[str, int]:
     table = _table("session.shape", raw)
     _reject_unknown("session.shape", table, vocabulary.accepted("family"))
@@ -713,13 +650,12 @@ def load_string(text: str) -> Config:
         msg = f"the configuration is not valid TOML: {exc}"
         raise ConfigError(msg) from exc
 
-    _reject_unknown("config", raw, ("instrument", "output", "session", "pool"))
+    _reject_unknown("config", raw, ("instrument", "session", "pool"))
 
     profile = _instrument(raw.get("instrument", {}))
     pools, rhythm = _pool(raw.get("pool", {}), profile)
     return Config(
         instrument=profile,
-        output=_output(raw.get("output", {})),
         session=_session(raw.get("session", {})),
         pool=pools,
         rhythm=rhythm,

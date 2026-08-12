@@ -206,7 +206,7 @@ def _a_date(subparser: argparse.ArgumentParser) -> None:
 
 
 def _generate_flags(generate: argparse.ArgumentParser) -> None:
-    """§11's seven flags. None of them is a path — the working directory is the project."""
+    """§11's six flags. None of them is a path — the working directory is the project."""
     generate.add_argument(
         "--date",
         type=_iso_date,
@@ -224,12 +224,6 @@ def _generate_flags(generate: argparse.ArgumentParser) -> None:
         "--dry-run",
         action="store_true",
         help="print the selections and render nothing",
-    )
-    generate.add_argument(
-        "--staves",
-        choices=config.STAVES,
-        default=None,
-        help="override [output] staves for this run (inert for the .gp output)",
     )
     generate.add_argument(
         "--count",
@@ -300,17 +294,12 @@ def _generate(args: argparse.Namespace, root: Path) -> int:
 
 
 def _overridden(active: Config, args: argparse.Namespace) -> Config:
-    """§11's two configuration overrides, applied before anything reads them.
+    """§11's `--count` override, applied before anything reads it.
 
     Applied to the `Config` itself rather than carried beside it, so that one
-    object describes the run — including the hash the seed is derived from.
-    That is why `--count` changes the draw and `--staves` does not:
-    `session._fingerprint` excludes `[output]` deliberately, so a staff mode
-    cannot hand back a different set of exercises.
+    object describes the run — including the hash the seed is derived from, which
+    `--count` deliberately moves: a different count is a different draw.
     """
-    if args.staves is not None:
-        active = replace(active, output=replace(active.output, staves=args.staves))
-
     if args.count is None:
         return active
 
@@ -508,8 +497,7 @@ _REPLAY_INSTRUMENT = (
 
 _CONFIG_MOVED = (
     "note: the configuration has changed since {date} was generated. The exercises are the "
-    "recorded ones and are unaffected, but the tempo ranges and the staff mode are read from "
-    "[pool] and [output] as they are now."
+    "recorded ones and are unaffected, but the tempo ranges are read from [pool] as they are now."
 )
 
 _UNKNOWN_FAMILY = (
@@ -545,7 +533,7 @@ def _replay(args: argparse.Namespace, root: Path) -> int:
 
     The record identifies the instrument by name (§12), so the profile itself —
     the tuning, the fret count, the position span — comes from the
-    configuration, as do the tempo ranges and the staff mode. The instrument is
+    configuration, as do the tempo ranges. The instrument is
     checked by name and a mismatch is refused, because engraving one bass's
     exercises for another is §5's failure exactly. The rest is presentational
     and is reported rather than refused: a configuration hash that no longer

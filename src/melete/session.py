@@ -131,13 +131,9 @@ def _jsonable(value: AxisValue) -> str | int | list[int]:
 def _fingerprint(config: Config) -> dict[str, Any]:
     """Everything about the configuration that decides *which* exercises are drawn.
 
-    `[output]` is deliberately absent. It selects how a drawn exercise is
-    engraved — the staves, the key signatures — and folding it in would fold it
-    into the seed, so changing the staff mode would hand back a different set of
-    exercises with no indication that it had. Everything else is in, because
-    everything else moves the draw: the instrument decides which specifications
-    are valid, `[session]` decides how many and of what, and `[pool]` is the
-    candidate set itself.
+    Everything in the configuration is here, because everything in it moves the
+    draw: the instrument decides which specifications are valid, `[session]`
+    decides how many and of what, and `[pool]` is the candidate set itself.
 
     Candidate lists keep the order they were written in. That order is not
     cosmetic — a weighted draw walks the candidates in sequence — so two pools

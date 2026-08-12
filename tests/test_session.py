@@ -476,17 +476,6 @@ def test_the_configuration_hash_covers_the_playability_bounds() -> None:
     assert session.config_hash(narrow_hand) != session.config_hash(config())
 
 
-def test_the_configuration_hash_ignores_the_engraving_settings() -> None:
-    """`[output]` decides how a drawn exercise is engraved, not which is drawn.
-
-    Folding it into the hash would fold it into the seed, and changing the
-    staff mode would silently hand back a different set of exercises.
-    """
-    tabbed = load_string(CONFIG_TOML + '\n[output]\nstaves = "tab"\n')
-
-    assert session.config_hash(tabbed) == session.config_hash(config())
-
-
 def test_the_configuration_hash_covers_an_unshaped_session() -> None:
     unshaped = load_string(CONFIG_TOML.replace("shape = { scales = 2, chromatic = 1 }", ""))
 
