@@ -24,6 +24,7 @@ from conftest import assert_central_invariant, assert_spelling_sounds_correctly,
 from melete.families.chromatic import DEFAULT_TEMPO_RANGE, INSTRUCTION
 from melete.families.chromatic import generate as _generate
 from melete.instrument import PROFILES
+from melete.layout import Lever, plan_voice
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -237,6 +238,62 @@ def test_shift_position_per_cycle_moves_a_whole_hand_position() -> None:
 def test_the_open_string_is_reachable() -> None:
     score = generate(BASS6, params(start_fret=0, span=1))
     assert [note.fret for note in notes_of(score)] == [0, 1, 2, 3]
+
+
+# --------------------------------------------------------------------------
+# The layout hints the fitter consumes (spec §4.2, §4.6)
+# --------------------------------------------------------------------------
+
+
+def test_a_one_way_pass_emits_the_plain_add_drop_levers() -> None:
+    # No turnaround, so no apex to repeat or omit: the cell is the permutation
+    # group, there is no seam, and the only note-count moves are add/drop-one.
+    _score, hints = _generate(BASS6, PARAMS)
+    assert hints.cell == 4
+    assert hints.seam is None
+    assert hints.levers == (Lever.ADD_ONE, Lever.DROP_ONE)
+
+
+def test_all_strings_up_and_down_emits_the_apex_levers_and_seam() -> None:
+    # "Chromatic uses all strings" (spec §6) is driven by span = the profile's
+    # string count from start_string 0, which the family already realizes via
+    # `range(span)` — not an "all" sentinel. bass6 has six strings, so
+    # `there_and_back` walks eleven string-groups (6 up, 5 back down).
+    spec = params(
+        permutation=(1, 2, 4, 3),
+        start_string=0,
+        direction="up_down",
+        string_traversal="adjacent",
+        span=6,
+    )
+    score, hints = _generate(BASS6, spec)
+
+    # 11 string-groups x 4 fingers = 44 notes, the apex played once.
+    assert len(score.voice) == 44
+    # The permutation group is the cell; the apex is the last note of the
+    # ascending half (span * cell - 1 = 6 * 4 - 1); the apex may be repeated or
+    # omitted to reach a whole-bar count.
+    assert hints.cell == 4
+    assert hints.seam == 23
+    assert hints.levers == (Lever.APEX_REPEAT, Lever.APEX_OMIT)
+
+
+def test_all_strings_cycle_fits_two_bars_of_six_four_via_apex_repeat() -> None:
+    # 44 notes tiles no sane bar (11 beats is prime), so the fitter repeats the
+    # apex cell to 48 = 12 beats and picks the fullest even meter, 6/4 x 2.
+    spec = params(
+        permutation=(1, 2, 4, 3),
+        start_string=0,
+        direction="up_down",
+        string_traversal="adjacent",
+        span=6,
+    )
+    score, hints = _generate(BASS6, spec)
+    fitted, plan = plan_voice(score.voice, hints)
+    assert len(fitted) == 48
+    assert plan.levers_applied == (Lever.APEX_REPEAT,)
+    assert plan.time_signature == (6, 4)
+    assert plan.bars == 2
 
 
 # --------------------------------------------------------------------------
