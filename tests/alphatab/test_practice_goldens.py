@@ -32,7 +32,9 @@ visual check is a separate task (melete#122).
 from __future__ import annotations
 
 import datetime
+import re
 import shutil
+import zipfile
 from fractions import Fraction
 from pathlib import Path
 from random import Random
@@ -194,3 +196,30 @@ def test_the_frozen_book_renders_to_a_valid_gp(tmp_path: Path) -> None:
     gp = render(book, tmp_path)
     assert gp.exists()
     assert gp.read_bytes()[:2] == b"PK"  # a .gp is a ZIP; this is its magic
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(NODE_ON_PATH is None, reason=NO_NODE)
+def test_the_rendered_book_lays_out_one_system_per_exercise(
+    scores: list[Score], tmp_path: Path
+) -> None:
+    r"""The rendered `.gp` carries the per-exercise bar counts as its track layout.
+
+    This is the melete#138 fix proven end to end: `emit_book`'s `\track`
+    systemslayout directive must survive the real alphaTab toolchain and land as
+    the master track's `<SystemsLayout>` in the exported `Content/score.gpif`,
+    equal to `[bar_count(exercise) for exercise in the day]` — one system per
+    exercise, so the `\section` titles no longer overprint. The score-level layout
+    is not honored for a single-track book, so the *track-level* element is what
+    matters and is what is asserted here.
+    """
+    expected = " ".join(str(len(bar(score.voice, score.time_signature))) for score in scores)
+
+    book = (GOLDEN / "book.atex").read_text(encoding="utf-8")
+    gp = render(book, tmp_path)
+    with zipfile.ZipFile(gp) as archive:
+        name = next(n for n in archive.namelist() if n.endswith("score.gpif"))
+        gpif = archive.read(name).decode("utf-8")
+
+    track_layouts = re.findall(r"<SystemsLayout>([^<]*)</SystemsLayout>", gpif)
+    assert track_layouts == [expected]

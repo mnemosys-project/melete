@@ -450,6 +450,30 @@ def test_emit_score_has_no_section_marker() -> None:
     assert "\\section" not in emit_score(sample_score())
 
 
+def test_the_book_lays_out_one_system_per_exercise() -> None:
+    # Each exercise its own system, so the `\section` titles can't overprint
+    # (melete#138): the `\track` systemslayout carries one bar count per exercise,
+    # in order. sample_score is 2 bars; dorian and chromatic are 1 bar each.
+    text = emit_book(
+        [sample_score(), dorian_score(), chromatic_score()],
+        Cover(date="2026-08-12", instrument="bass6"),
+    )
+    assert '\\track "" { systemslayout 2 1 1 }' in text
+
+
+def test_the_systems_layout_precedes_the_bar_stream() -> None:
+    # The directive is track metadata and must lead the bars, not sit among them,
+    # so it configures the track before any beat is read.
+    text = emit_book([sample_score()], Cover(date="2026-08-12", instrument="bass6"))
+    assert text.index("systemslayout") < text.index("\\section")
+
+
+def test_emit_score_has_no_systems_layout() -> None:
+    # A single exercise is one section; nothing can overprint, so no layout
+    # directive is emitted (melete#138 is a book-only concern).
+    assert "systemslayout" not in emit_score(sample_score())
+
+
 def test_a_book_with_no_exercises_is_a_hard_error() -> None:
     with pytest.raises(ValueError, match="at least one exercise"):
         emit_book([], Cover(date="2026-08-12", instrument="bass6"))
