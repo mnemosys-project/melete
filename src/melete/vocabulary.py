@@ -166,25 +166,11 @@ AXES: dict[str, dict[str, str]] = {
         "position_per_cycle": "up one position per cycle",
     },
     # --- §8: the rhythm modifier ---------------------------------------
-    "subdivision": {
-        "quarter": "quarters",
-        "eighth": "eighths",
-        "triplet_eighth": "triplet eighths",
-        "sixteenth": "sixteenths",
-        "sextuplet": "sextuplets",
-        "quintuplet": "quintuplets",
-    },
-    # Identifiers are snake_case because a TOML key or an enumerated value
-    # in an error message should not carry a slash; the display half is the
-    # fraction a player expects to read.
-    "time_signature": {
-        "4_4": "4/4",
-        "3_4": "3/4",
-        "5_4": "5/4",
-        "6_8": "6/8",
-        "7_8": "7/8",
-        "12_8": "12/8",
-    },
+    # The `subdivision` and `time_signature` axes are gone (#119): the layout
+    # fitter derives the meter and subdivision (#118), so neither is sampled or
+    # named here any longer. `rhythm.SUBDIVISIONS` still maps the fitter's
+    # subdivision to a written duration, but that is the fitter's table, not a
+    # display vocabulary.
     "accent_pattern": {
         "none": "no accents",
         "every_3": "accent every 3",

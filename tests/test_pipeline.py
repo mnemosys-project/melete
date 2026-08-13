@@ -75,15 +75,14 @@ directions = ["up", "down", "up_down"]
 patterns = ["ascending_pairs", "descending_pairs", "alternating"]
 
 [pool.rhythm]
-subdivisions = ["eighth", "triplet_eighth", "sixteenth"]
-time_signatures = ["4_4", "3_4"]
 accent_patterns = ["none", "every_3"]
 note_value_patterns = ["straight", "long_short"]
 """
 
-#: One realizable `scales` specification, for the sampled-axis test: A1 Dorian,
-#: two octaves boxed across the four lowest strings. The rhythm axes are set
-#: per-test so the two draws differ only in the axes #118 makes irrelevant.
+#: One realizable `scales` specification, for the ignored-legacy-key test: A1
+#: Dorian, two octaves boxed across the four lowest strings. The retired rhythm
+#: keys are set per-test so the two params differ only in the keys #118 makes
+#: irrelevant and #119 has since retired.
 SCALES_SPEC: dict[str, object] = {
     "root": 33,
     "scale_type": "dorian",
@@ -129,13 +128,14 @@ def test_the_fitter_derives_a_quarter_denominated_meter() -> None:
         assert score.time_signature[1] == 4
 
 
-def test_the_sampled_subdivision_and_meter_do_not_reach_the_page() -> None:
-    """#118: the fitter drives meter and subdivision; the sampled axes are ignored.
+def test_a_stray_subdivision_or_meter_key_does_not_reach_the_page() -> None:
+    """#118/#119: the fitter drives meter and subdivision; stray keys are ignored.
 
-    Two draws that differ *only* in the sampled `subdivision` and `time_signature`
-    realize to the identical Score — same voice, same meter — because those axes
-    no longer determine the engraving. If sampling still drove the rhythm, the two
-    voices would differ.
+    `subdivision` and `time_signature` are no longer sampled axes (#119), but a
+    hand-edited or pre-#119 `session.json` replayed through the pipeline may
+    still carry them. Two params that differ *only* in those retired keys realize
+    to the identical Score — same voice, same meter — because the fitter derives
+    both (#118). If a stray key still drove the rhythm, the two voices would differ.
     """
     fast = pipeline.realize(
         BASS6, "scales", {**SCALES_SPEC, "subdivision": "sixteenth", "time_signature": "3_4"}

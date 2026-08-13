@@ -61,8 +61,6 @@ shifts = ["none", "fret_per_cycle"]
 spans = [3, 4]
 
 [pool.rhythm]
-subdivisions = ["eighth", "triplet_eighth", "sixteenth"]
-time_signatures = ["4_4", "3_4"]
 accent_patterns = ["none", "every_3"]
 note_value_patterns = ["straight", "long_short"]
 """
@@ -106,8 +104,6 @@ def spec_with_a_string_set() -> ExerciseSpec:
             "pattern": "straight",
             "range_octaves": 2,
             "direction": "up",
-            "subdivision": "eighth",
-            "time_signature": "4_4",
             "accent_pattern": "none",
             "note_value_pattern": "straight",
         },

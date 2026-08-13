@@ -127,7 +127,7 @@ def test_the_spec_example_config_loads() -> None:
         'patterns = ["straight", "thirds", "groups_of_3", "groups_of_4"]\n'
         'traversals = ["positional", "three_note_per_string"]\n'
         "octaves = [1, 2]\ntempo = [80, 100]\n"
-        '\n[pool.rhythm]\nsubdivisions = ["eighth", "triplet_eighth", "sixteenth"]\n'
+        "\n[pool.rhythm]\n"
         'accent_patterns = ["none", "every_3"]\n'
         'note_value_patterns = ["straight", "long_short"]\n'
     )
@@ -135,7 +135,7 @@ def test_the_spec_example_config_loads() -> None:
     assert cfg.pool["scales"].values["root"] == tuple(range(12))
     assert cfg.pool["scales"].values["range_octaves"] == (1, 2)
     assert cfg.pool["scales"].tempo == (80, 100)
-    assert cfg.rhythm.values["subdivision"] == ("eighth", "triplet_eighth", "sixteenth")
+    assert cfg.rhythm.values["accent_pattern"] == ("none", "every_3")
 
 
 # --------------------------------------------------------------------------
@@ -187,8 +187,20 @@ def test_rhythm_has_no_tempo() -> None:
 
 def test_unknown_rhythm_key_is_rejected() -> None:
     with pytest.raises(ConfigError) as exc:
-        load_string('[pool.rhythm]\nsubdivision = ["eighth"]')
-    assert "subdivisions" in str(exc.value)
+        load_string('[pool.rhythm]\naccent_pattern = ["none"]')  # singular
+    assert "accent_pattern" in str(exc.value)
+    assert "accent_patterns" in str(exc.value)
+
+
+def test_retired_rhythm_axes_are_rejected_as_unknown() -> None:
+    # `subdivisions` and `time_signatures` were sampled axes until #119, when
+    # the layout fitter took over deriving the meter and subdivision (#118).
+    # They are now unknown `[pool.rhythm]` keys like any other misspelling.
+    for retired in ('subdivisions = ["eighth"]', 'time_signatures = ["4_4"]'):
+        with pytest.raises(ConfigError) as exc:
+            load_string(f"[pool.rhythm]\n{retired}")
+        assert "unrecognized" in str(exc.value)
+        assert "accent_patterns" in str(exc.value)
 
 
 # --------------------------------------------------------------------------
@@ -460,8 +472,8 @@ def test_registry_axis_accepts_its_identifiers() -> None:
 
 
 def test_registry_axis_accepts_all() -> None:
-    cfg = load_string('[pool.rhythm]\nsubdivisions = "all"')
-    assert cfg.rhythm.values["subdivision"] == tuple(vocabulary.accepted("subdivision"))
+    cfg = load_string('[pool.rhythm]\naccent_patterns = "all"')
+    assert cfg.rhythm.values["accent_pattern"] == tuple(vocabulary.accepted("accent_pattern"))
 
 
 def test_registry_axis_rejects_an_unknown_identifier_naming_the_axis_values() -> None:
@@ -485,14 +497,14 @@ def test_string_skip_rejects_a_value_outside_the_registry() -> None:
 
 def test_an_identifier_of_the_wrong_type_is_rejected() -> None:
     with pytest.raises(ConfigError) as exc:
-        load_string("[pool.rhythm]\nsubdivisions = [1.5]")
-    assert "pool.rhythm.subdivisions[0]" in str(exc.value)
+        load_string("[pool.rhythm]\naccent_patterns = [1.5]")
+    assert "pool.rhythm.accent_patterns[0]" in str(exc.value)
 
 
 def test_a_boolean_is_not_an_identifier() -> None:
     with pytest.raises(ConfigError) as exc:
-        load_string("[pool.rhythm]\nsubdivisions = [true]")
-    assert "pool.rhythm.subdivisions[0]" in str(exc.value)
+        load_string("[pool.rhythm]\naccent_patterns = [true]")
+    assert "pool.rhythm.accent_patterns[0]" in str(exc.value)
 
 
 def test_an_axis_must_be_a_list_or_all() -> None:
@@ -507,16 +519,9 @@ def test_an_empty_axis_is_rejected() -> None:
     assert "pool.scales.scale_types" in str(exc.value)
 
 
-def test_time_signatures_use_the_snake_case_identifiers() -> None:
-    cfg = load_string('[pool.rhythm]\ntime_signatures = ["7_8", "4_4"]')
-    assert cfg.rhythm.values["time_signature"] == ("7_8", "4_4")
-
-
 def test_every_rhythm_axis_loads() -> None:
     cfg = load_string(
-        "[pool.rhythm]\n"
-        'subdivisions = "all"\ntime_signatures = "all"\n'
-        'accent_patterns = "all"\nnote_value_patterns = "all"\n'
+        "[pool.rhythm]\naccent_patterns = \"all\"\nnote_value_patterns = \"all\"\n"
     )
     assert set(cfg.rhythm.values) == {axis.name for axis in _RHYTHM_AXES}
 

@@ -254,14 +254,17 @@ therefore omit `scale_types`; any pool that can draw `diatonic` must declare it.
 
 The rhythm modifier applies over all four families rather than being a fifth
 family, so it has one pool and carries no `tempo`. Every exercise carries these
-four axes.
+two axes.
 
 | Key | Axis | Accepted values |
 |---|---|---|
-| `subdivisions` | `subdivision` | `quarter`, `eighth`, `triplet_eighth`, `sixteenth`, `sextuplet`, `quintuplet` |
-| `time_signatures` | `time_signature` | `4_4`, `3_4`, `5_4`, `6_8`, `7_8`, `12_8` |
 | `accent_patterns` | `accent_pattern` | `none`, `every_3`, `every_5`, `displaced` |
 | `note_value_patterns` | `note_value_pattern` | `straight`, `long_short`, `short_long` |
+
+The subdivision and time signature are **not** configured here. The layout
+fitter derives both from each exercise's note count so the voice tiles into
+whole measures, so `subdivisions` and `time_signatures` are no longer sampled
+axes — a `[pool.rhythm]` that lists either key is rejected as unknown.
 
 ## Axis values
 

@@ -148,8 +148,19 @@ def test_each_tuplet_still_holds_its_nominal_written_value(subdivision: str) -> 
 # --------------------------------------------------------------------------
 
 
-def test_the_subdivision_table_covers_the_registry_exactly() -> None:
-    assert sorted(rhythm.SUBDIVISIONS) == vocabulary.accepted("subdivision")
+def test_the_subdivision_table_covers_every_subdivision_exactly() -> None:
+    # `subdivision` is no longer a sampled axis (#119); the layout fitter picks
+    # it (#118). The drift guard therefore pairs the table `restamp` reads with
+    # this module's own independent enumeration (`SOUNDING`) rather than the
+    # retired `vocabulary` axis — every subdivision has a written duration and
+    # nothing in the table is dead.
+    assert sorted(rhythm.SUBDIVISIONS) == sorted(SOUNDING)
+
+
+def test_subdivision_and_time_signature_are_no_longer_sampled_axes() -> None:
+    # Retired in #119: the fitter derives the meter and subdivision (#118).
+    assert "subdivision" not in rhythm.AXES
+    assert "time_signature" not in rhythm.AXES
 
 
 @pytest.mark.parametrize(("subdivision", "written"), [("quarter", 4), ("sixteenth", 16)])

@@ -30,8 +30,6 @@ EXPECTED_AXES = {
     "direction",
     "string_traversal",
     "shift",
-    "subdivision",
-    "time_signature",
     "accent_pattern",
     "note_value_pattern",
     "context",
@@ -45,7 +43,6 @@ EXAMPLE_CONFIG_IDENTIFIERS = {
     "scale_type": ["ionian", "dorian", "phrygian", "major_pentatonic", "blues"],
     "pattern": ["straight", "thirds", "groups_of_3", "groups_of_4"],
     "traversal": ["positional", "three_note_per_string"],
-    "subdivision": ["eighth", "triplet_eighth", "sixteenth"],
     "accent_pattern": ["none", "every_3"],
     "note_value_pattern": ["straight", "long_short"],
 }
@@ -152,23 +149,20 @@ def test_display_names_are_human_readable() -> None:
 
 
 def test_cover_page_sentence_reads_as_prose() -> None:
-    # §12's example entry: "D Dorian, three-notes-per-string, triplet eighths".
+    # §12's example entry named the subdivision ("...triplet eighths"), but the
+    # subdivision is no longer a display axis (#119) — the layout fitter derives
+    # it (#118) and it does not travel in `params`. What the registry still
+    # composes is the family half of that sentence.
     parts = [
         display("scale_type", "dorian"),
         display("traversal", "three_note_per_string"),
-        display("subdivision", "triplet_eighth"),
     ]
-    assert ", ".join(parts) == "Dorian, three-notes-per-string, triplet eighths"
+    assert ", ".join(parts) == "Dorian, three-notes-per-string"
 
 
 def test_direction_reads_as_a_direction() -> None:
     assert display("direction", "up") == "ascending"
     assert display("direction", "down") == "descending"
-
-
-def test_time_signatures_display_as_fractions() -> None:
-    assert display("time_signature", "7_8") == "7/8"
-    assert display("time_signature", "4_4") == "4/4"
 
 
 def test_inversions_display_in_full() -> None:
@@ -186,7 +180,7 @@ def test_accepted_is_sorted_for_stable_error_messages() -> None:
 
 
 def test_accepted_returns_every_identifier_on_the_axis() -> None:
-    assert set(accepted("subdivision")) == set(AXES["subdivision"])
+    assert set(accepted("accent_pattern")) == set(AXES["accent_pattern"])
 
 
 def test_accepted_rejects_an_unknown_axis_naming_the_axes() -> None:
@@ -212,7 +206,7 @@ def test_unknown_axis_in_display_names_the_axes() -> None:
     with pytest.raises(KeyError) as excinfo:
         display("tempo", "fast")
     assert "tempo" in str(excinfo.value)
-    assert "subdivision" in str(excinfo.value)
+    assert "accent_pattern" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------
