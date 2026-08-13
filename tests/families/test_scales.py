@@ -27,6 +27,7 @@ from melete import theory
 from melete.families.scales import DEFAULT_TEMPO_RANGE, INSTRUCTION
 from melete.families.scales import generate as _generate
 from melete.instrument import PROFILES, positions
+from melete.layout import Lever
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -235,6 +236,19 @@ def test_direction_reorders_without_changing_the_content() -> None:
     for direction in DIRECTIONS:
         other = generate(BASS6, params(direction=direction))
         assert set(pitches_of(other)) == set(pitches_of(up))
+
+
+def test_scales_default_direction_is_up_down() -> None:
+    # #117: drilling both directions is the norm, so an unspecified `direction`
+    # defaults to `up_down` rather than requiring the caller to name it. The
+    # voice ascends and returns, and the hints carry the apex accounting a
+    # one-directional run does not need.
+    spec = params()
+    del spec["direction"]
+    score, hints = _generate(BASS6, spec)
+    assert pitches_of(score) == IONIAN_A2 + IONIAN_A2[-2::-1]  # up and back
+    assert hints.seam is not None
+    assert Lever.APEX_REPEAT in hints.levers
 
 
 # --------------------------------------------------------------------------
@@ -550,24 +564,44 @@ def test_a_degree_no_string_in_the_set_can_reach_raises() -> None:
         generate(BASS6, params(string_set=(5,)))
 
 
-def test_a_position_wider_than_the_hand_raises_rather_than_mislabelling() -> None:
-    """Issue #57, exercise 3 of `sessions/2026-08-10`, parameter for parameter.
+def test_positional_two_octave_fallback_is_recorded_not_silent() -> None:
+    """#117: two octaves is *attempted* from the low string, with a declared fallback.
 
-    G♭ major pentatonic, two octaves, `positional`, over the D, G and C
-    strings. It engraved as frets 9 to 23 under a cover page reading
-    "positional" — a fourteen-fret reach labelled as one hand position. Two
-    octaves of a pentatonic across three strings is not a positional exercise,
-    so the family says so and §9 resamples it.
+    A♭ Ionian (A♭1 = 32), `positional`, two octaves, over the four lowest
+    strings B E A D. The top octave will not sit under one hand there — over
+    B E A D it lands on the D string alone, a shift and not a position — so the
+    family drops to one octave played up-and-down and **records** the compromise
+    in `params["layout_fallback"]` rather than silently shifting out of position
+    to fake two octaves (#57's original defect, now made visible instead of
+    either mislabelled or hard-refused).
     """
-    spec = params(
-        root=42,
-        scale_type="major_pentatonic",
-        traversal="positional",
-        string_set=(2, 3, 4),
-        pattern="groups_of_4",
-        range_octaves=2,
-        direction="up",
-    )
+    spec = params(root=32, string_set=(0, 1, 2, 3))
+    del spec["direction"]  # the #117 default: up_down
+    score = generate(BASS6, spec)
+
+    fallback = score.params.get("layout_fallback")
+    assert fallback in (None, "one_octave_up_down")
+    if fallback is not None:
+        # One octave, up and back — never truncated to fit, just fewer octaves.
+        one_octave = theory.scale_pitches(32, "ionian", 1)
+        assert pitches_of(score) == one_octave + one_octave[-2::-1]
+        # And genuinely one position: the fallback is a compromise made visible,
+        # not a silent fourteen-fret reach under a "positional" label.
+        frets = [note.fret for note in notes_of(score)]
+        assert max(frets) - min(frets) <= BASS6.position_span
+
+
+def test_a_positional_two_octave_that_cannot_even_fall_back_still_raises() -> None:
+    """The fallback is not a silent catch-all: when even one octave will not fit.
+
+    A single-string `positional` set cannot hold a whole octave under one hand —
+    twelve frets against a four-fret position — so the two-octave attempt raises,
+    the one-octave retry raises too, and the family surfaces the refusal (§13)
+    rather than swallowing it. #57's "refuse rather than mislabel" still holds
+    for the genuinely unrealizable case; #117 only softens the case that *can*
+    fall back.
+    """
+    spec = params(string_set=(2,), range_octaves=2)
     with pytest.raises(ValueError, match=r"positional traversal must fit one position"):
         generate(BASS6, spec)
 
