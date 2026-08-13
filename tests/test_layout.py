@@ -18,7 +18,7 @@ from typing import cast
 
 import pytest
 
-from melete.layout import LayoutHints, LayoutPlan, Lever, fit, realize_lever
+from melete.layout import LayoutHints, LayoutPlan, Lever, fit, plan_voice, realize_lever
 from melete.score import Note, Voice
 
 
@@ -174,6 +174,61 @@ def test_fit_raises_when_the_note_count_is_not_a_whole_number_of_beats() -> None
 
 def test_fit_rejects_a_cell_with_no_subdivision() -> None:
     # `LayoutHints` admits any cell >= 1, but only 1-6 map to a subdivision that
-    # fills one beat; a cell of 7 has no engraving and must fail loudly.
-    with pytest.raises(ValueError, match="no subdivision mapping"):
+    # fills one beat; a cell of 7 has no engraving and must fail loudly. With no
+    # lever to try, the lever search re-raises its own outer "no whole-bar fit"
+    # message (the inner "no subdivision mapping" cause is wrapped, spec §4.6).
+    with pytest.raises(ValueError, match="no whole-bar fit"):
         fit(28, LayoutHints(cell=7, seam=None, levers=()))
+
+
+def test_fit_returns_a_clean_even_fit_without_a_lever() -> None:
+    # 48 sixteenths / cell 4 = 12 beats -> 6/4 x 2, already even: no lever fires
+    # even though two are legal here (spec §4.5).
+    plan = fit(48, LayoutHints(cell=4, seam=24, levers=(Lever.APEX_REPEAT, Lever.APEX_OMIT)))
+    assert plan.time_signature == (6, 4)
+    assert plan.bars == 2
+    assert plan.levers_applied == ()
+
+
+def test_fit_fires_an_apex_lever_from_a_prime_baseline() -> None:
+    # 44 notes / cell 4 = 11 beats has no sane bar. APEX_REPEAT adds the 4-note
+    # apex cell -> 48 -> 6/4 x 2 (even); APEX_OMIT -> 40 -> 2/4 x 5 is odd and
+    # loses on quality, so the repeat wins (the chromatic case, spec §4.6).
+    plan = fit(44, LayoutHints(cell=4, seam=23, levers=(Lever.APEX_REPEAT, Lever.APEX_OMIT)))
+    assert plan.time_signature == (6, 4)
+    assert plan.bars == 2
+    assert plan.levers_applied == (Lever.APEX_REPEAT,)
+
+
+def test_fit_adds_one_note_to_reach_an_even_sane_meter() -> None:
+    # 11 notes / cell 1 = 11 beats has no sane bar; +1 -> 12 -> 6/4 x 2.
+    plan = fit(11, LayoutHints(cell=1, seam=None, levers=(Lever.ADD_ONE, Lever.DROP_ONE)))
+    assert plan.time_signature == (6, 4)
+    assert plan.bars == 2
+    assert plan.levers_applied == (Lever.ADD_ONE,)
+
+
+def test_fit_keeps_an_odd_but_sane_count_when_no_lever_helps() -> None:
+    # 10 notes / cell 1 = 10 beats -> 2/4 x 5 (odd but sane). +1 -> 11 has no
+    # fit; -1 -> 9 -> 3/4 x 3 is also odd and no better, so the lever-free odd
+    # fit is kept rather than forced (spec §4.6: odd-but-sane fallback, no raise).
+    plan = fit(10, LayoutHints(cell=1, seam=None, levers=(Lever.ADD_ONE, Lever.DROP_ONE)))
+    assert plan.time_signature == (2, 4)
+    assert plan.bars == 5
+    assert plan.levers_applied == ()
+
+
+def test_plan_voice_realizes_the_chosen_lever_on_the_notes() -> None:
+    # plan_voice fits the note count and then applies the chosen lever to the
+    # notes: the 4-note apex cell is repeated, taking 44 notes to 48.
+    notes: Voice = [_n(23 + i) for i in range(44)]
+    out, plan = plan_voice(notes, LayoutHints(cell=4, seam=23, levers=(Lever.APEX_REPEAT,)))
+    assert len(out) == 48
+    assert plan.levers_applied == (Lever.APEX_REPEAT,)
+
+
+def test_fit_raises_only_when_nothing_tiles_even_with_levers() -> None:
+    # 14 notes / cell 2 = 7 beats has no sane bar and no lever is declared, so
+    # the search exhausts and re-raises its outer message (spec §4.6).
+    with pytest.raises(ValueError, match="no whole-bar fit"):
+        fit(14, LayoutHints(cell=2, seam=None, levers=()))

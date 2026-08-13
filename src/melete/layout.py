@@ -93,13 +93,67 @@ def _candidates(beats: int, seam_beat: int | None) -> list[tuple[int, int]]:
     return sorted(pairs, key=rank)
 
 
-def fit(note_count: int, hints: LayoutHints) -> LayoutPlan:
-    """Derive a whole-bar layout for ``note_count`` notes (spec §4).
+#: Effect of each lever on the note count (apex levers move by a whole cell; see
+#: fit()). Sorted by |delta| so the smallest edit is tried first.
+_LEVER_DELTA: dict[Lever, int] = {
+    Lever.DROP_ONE: -1,
+    Lever.ADD_ONE: +1,
+    Lever.APEX_OMIT: -1,
+    Lever.APEX_REPEAT: +1,
+}
 
-    This lever-free core tiles ``note_count / cell`` beats into sane bars. It
-    raises when nothing tiles; issue #114 wraps it with a note-count lever search.
+
+def _try(note_count: int, hints: LayoutHints, applied: tuple[Lever, ...]) -> LayoutPlan | None:
+    try:
+        return _fit_fixed(note_count, hints, applied)
+    except ValueError:
+        return None
+
+
+def _quality(plan: LayoutPlan) -> tuple[int, int]:
+    """Lower is better: prefer an even bar count, then fewer levers."""
+    return (0 if plan.bars % 2 == 0 else 1, len(plan.levers_applied))
+
+
+def fit(note_count: int, hints: LayoutHints) -> LayoutPlan:
+    """Whole-bar layout, engaging one legal lever only when needed (spec §4.5-4.6).
+
+    A clean, even, lever-free fit is ideal and returned at once. Otherwise each
+    legal lever is tried (an apex lever moves the count by a whole cell; add/drop
+    by one note), and the best result wins by ``_quality`` — preferring an even
+    bar count, then the fewest levers. Falls back to an odd-but-sane lever-free
+    count when no lever improves on it; raises only when nothing tiles at all.
     """
-    return _fit_fixed(note_count, hints, applied=())
+    best = _try(note_count, hints, ())
+    if best is not None and best.bars % 2 == 0:
+        return best
+
+    for lever in sorted(hints.levers, key=lambda lv: abs(_LEVER_DELTA[lv])):
+        step = hints.cell if lever in (Lever.APEX_REPEAT, Lever.APEX_OMIT) else 1
+        delta = (1 if _LEVER_DELTA[lever] > 0 else -1) * step
+        candidate = _try(note_count + delta, hints, (lever,))
+        if candidate is None:
+            continue
+        if best is None or _quality(candidate) < _quality(best):
+            best = candidate
+
+    if best is None:
+        msg = (
+            f"no whole-bar fit for {note_count} notes with cell {hints.cell} and "
+            f"levers {list(hints.levers)} (spec §4.6): the pattern needs a new "
+            f"lever declared by its family"
+        )
+        raise ValueError(msg)
+    return best
+
+
+def plan_voice(voice: Voice, hints: LayoutHints) -> tuple[Voice, LayoutPlan]:
+    """Fit ``voice`` and realize any chosen lever on the notes (spec §4)."""
+    plan = fit(len(voice), hints)
+    adjusted = list(voice)
+    for lever in plan.levers_applied:
+        adjusted = realize_lever(adjusted, lever, hints.seam, hints.cell)
+    return adjusted, plan
 
 
 def _fit_fixed(note_count: int, hints: LayoutHints, applied: tuple[Lever, ...]) -> LayoutPlan:
