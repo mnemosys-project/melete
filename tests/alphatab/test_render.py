@@ -36,7 +36,8 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -48,7 +49,6 @@ from melete.score import Note, Score, Voice
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 # Deliberately not real alphaTex: this module must be indifferent to its
 # contents, and a test that reads as music invites musical assertions here.
@@ -334,8 +334,12 @@ _REIMPORT_JS = (
     "const buf = fs.readFileSync(process.argv[2]);\n"
     "const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);\n"
     "const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes);\n"
-    "process.stdout.write(JSON.stringify("
-    "{tracks: score.tracks.length, bars: score.masterBars.length}));\n"
+    "process.stdout.write(JSON.stringify({\n"
+    "  tracks: score.tracks.length,\n"
+    "  bars: score.masterBars.length,\n"
+    "  masterBars: score.masterBars.map("
+    "(b) => ({isRepeatStart: b.isRepeatStart, repeatCount: b.repeatCount})),\n"
+    "}));\n"
 )
 
 
@@ -373,12 +377,14 @@ def _known_score() -> Score:
     )
 
 
-def _reimport_structure(gp: Path, tmp_path: Path) -> dict[str, int]:
-    """Re-import `gp` through alphaTab and return its track and bar counts.
+def _reimport_structure(gp: Path, tmp_path: Path) -> dict[str, Any]:
+    """Re-import `gp` through alphaTab and return its structural facts.
 
-    A failed re-import is surfaced loudly — its stderr becomes the assertion
-    message — rather than swallowed: a silent failure here would let a corrupt
-    `.gp` pass as a valid one, the exact thing this test exists to catch.
+    The track and bar counts, plus each master bar's repeat flags
+    (`isRepeatStart`, `repeatCount`) — the version-stable facts a round trip
+    preserves. A failed re-import is surfaced loudly — its stderr becomes the
+    assertion message — rather than swallowed: a silent failure here would let a
+    corrupt `.gp` pass as a valid one, the exact thing this test exists to catch.
     """
     node = NODE_ON_PATH
     assert node is not None  # guaranteed by the skipif; narrows the type
@@ -407,3 +413,77 @@ def test_a_known_score_renders_to_a_valid_gp_and_round_trips(tmp_path: Path) -> 
     structure = _reimport_structure(gp, tmp_path)
     assert structure["tracks"] == 1
     assert structure["bars"] == 3
+
+
+# --------------------------------------------------------------------------
+# The exercise-level repeat, end to end (spec §5; melete#112)
+# --------------------------------------------------------------------------
+#
+# The emit goldens (`test_alphatex_emit.py`) pin the repeat *tokens* in the text;
+# this proves the whole pipeline honours them — the frozen `repeat.atex` renders
+# to a valid `.gp` whose master bars carry the repeat alphaTab reconstructs. The
+# spike found that a *trailing* `\rc` opens a spurious empty master bar, so the
+# bar count here is load-bearing: two content bars must stay two, and the repeat
+# must land on the second, not on a phantom third.
+
+REPEAT_GOLDEN = Path(__file__).parent / "golden" / "repeat.atex"
+
+
+def _repeating_score() -> Score:
+    """A two-bar exercise wrapped in a repeat: one track, two bars, two passes.
+
+    Eight quarter notes in 4/4 fill exactly two bars, and `repeat=True` brackets
+    them. The counts are chosen unambiguous — two content bars stay two only if
+    the close leads the last bar rather than trailing it into a phantom third
+    (spike finding, melete#112). This is the Score the frozen `repeat.atex`
+    golden is emitted from, so the freeze and the render share one source.
+    """
+    profile = resolve_profile("bass6")
+    quarter = Fraction(1, 4)
+    voice: Voice = [
+        Note(
+            pitch=profile.tuning[0] + fret,
+            string=0,
+            fret=fret,
+            duration=quarter,
+            finger=None,
+            accent=False,
+        )
+        for fret in [0, 2, 3, 5] * 2
+    ]
+    return Score(
+        title="repeat",
+        instruction="",
+        instrument=profile,
+        time_signature=(4, 4),
+        tempo_range=(80, 80),
+        voice=voice,
+        key=None,
+        repeat=True,
+    )
+
+
+def test_the_repeat_golden_is_frozen() -> None:
+    """The emitter's text for the repeating score is pinned byte for byte.
+
+    Not an integration test — it renders nothing — so it runs everywhere and
+    guards the exact `.atex` the render test below feeds the real renderer.
+    """
+    assert emit_score(_repeating_score()) == REPEAT_GOLDEN.read_text(encoding="utf-8")
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(NODE_ON_PATH is None, reason=NO_NODE)
+def test_the_repeat_golden_renders_to_a_valid_gp_with_the_repeat(tmp_path: Path) -> None:
+    alphatex = REPEAT_GOLDEN.read_text(encoding="utf-8")
+
+    gp = render(alphatex, tmp_path)
+
+    assert gp.exists()
+    structure = _reimport_structure(gp, tmp_path)
+    assert structure["tracks"] == 1
+    # Two content bars stay two — a trailing `\rc` would have made a phantom third.
+    assert structure["bars"] == 2
+    master_bars = structure["masterBars"]
+    assert master_bars[0]["isRepeatStart"] is True
+    assert master_bars[-1]["repeatCount"] == 2

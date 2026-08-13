@@ -363,6 +363,21 @@ def test_the_rejected_scale_type_is_named_alongside_what_is_accepted() -> None:
 
 
 # --------------------------------------------------------------------------
+# The exercise-level repeat (spec §5)
+# --------------------------------------------------------------------------
+
+
+def test_a_score_does_not_repeat_by_default() -> None:
+    """A repeat is opt-in: an exercise plays once unless a family asks for it."""
+    assert _score().repeat is False
+
+
+def test_a_score_can_be_marked_to_repeat() -> None:
+    """The whole exercise wraps in a repeat when the family sets the flag."""
+    assert _score(repeat=True).repeat is True
+
+
+# --------------------------------------------------------------------------
 # Frozen shallowly, and not hashable
 # --------------------------------------------------------------------------
 
