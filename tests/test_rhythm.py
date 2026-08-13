@@ -9,21 +9,20 @@ twelfth note to engrave. The second is that a `note_value_pattern`
 longer fits the cycle length that §7's `max_notes` gate and §14's duration
 test both reason about.
 
-The rest pins the four axes of §8 and the errors §13 requires to be loud.
+`restamp` (#118) is handed the subdivision by the layout fitter rather than
+sampling one, so these tests pass the subdivision directly. The meter it tiles
+into is the fitter's job and is tested in `test_pipeline.py`; the rest — the
+subdivision table, the accents, the note-value patterns and the grouping — is
+here, where a voice can be restamped without the machinery around it.
 """
 
 from dataclasses import replace
 from fractions import Fraction
-from typing import Any
 
 import pytest
 
 from melete import rhythm, vocabulary
-from melete.instrument import PROFILES
-from melete.score import Note, Score, Tuplet, Voice, sounding_duration
-from melete.theory import Key
-
-BASS6 = PROFILES["bass6"]
+from melete.score import Note, Tuplet, Voice, sounding_duration
 
 #: Real elapsed time of one note at each subdivision (decision #16). Stated
 #: independently of `rhythm.SUBDIVISIONS` so the cycle-length test compares
@@ -58,30 +57,9 @@ def _note(index: int) -> Note:
     )
 
 
-def _score(count: int = 8, voice: Voice | None = None, key: Key | None = None) -> Score:
-    """A score whose voice is `count` plain notes, standing in for a family."""
-    return Score(
-        title="C Ionian, positional",
-        instruction="Keep the plucking hand even.",
-        instrument=BASS6,
-        time_signature=(4, 4),
-        tempo_range=(80, 100),
-        voice=[_note(index) for index in range(count)] if voice is None else voice,
-        key=key,
-        params={"family": "scales", "root": 0},
-    )
-
-
-def _params(**overrides: Any) -> dict[str, Any]:
-    """The four axes of §8, with any of them overridable."""
-    params: dict[str, Any] = {
-        "subdivision": "eighth",
-        "time_signature": "4_4",
-        "accent_pattern": "none",
-        "note_value_pattern": "straight",
-    }
-    params.update(overrides)
-    return params
+def _voice(count: int = 8) -> Voice:
+    """A voice of `count` plain notes, standing in for a family's output."""
+    return [_note(index) for index in range(count)]
 
 
 def _notes(voice: Voice) -> list[Note]:
@@ -95,8 +73,8 @@ def _notes(voice: Voice) -> list[Note]:
     return flat
 
 
-def _durations(score: Score) -> list[Fraction]:
-    return [note.duration for note in _notes(score.voice)]
+def _durations(voice: Voice) -> list[Fraction]:
+    return [note.duration for note in _notes(voice)]
 
 
 # --------------------------------------------------------------------------
@@ -106,9 +84,9 @@ def _durations(score: Score) -> list[Fraction]:
 
 def test_triplet_eighths_produce_a_tuplet_of_written_eighths() -> None:
     """Three written eighths under a (3, 2) ratio, sounding one quarter."""
-    out = rhythm.apply(_score(6), _params(subdivision="triplet_eighth"))
+    out = rhythm.restamp(_voice(6), "triplet_eighth")
 
-    first = out.voice[0]
+    first = out[0]
     assert isinstance(first, Tuplet)
     assert first.ratio == (3, 2)
     assert [note.duration for note in first.notes] == [Fraction(1, 8)] * 3
@@ -121,10 +99,7 @@ def test_every_written_duration_is_a_representable_notehead(
     subdivision: str,
     note_value_pattern: str,
 ) -> None:
-    out = rhythm.apply(
-        _score(9),
-        _params(subdivision=subdivision, note_value_pattern=note_value_pattern),
-    )
+    out = rhythm.restamp(_voice(9), subdivision, note_value_pattern=note_value_pattern)
 
     for duration in _durations(out):
         assert duration.numerator in (1, 3, 7)  # plain, dotted, double-dotted
@@ -134,11 +109,11 @@ def test_every_written_duration_is_a_representable_notehead(
 @pytest.mark.parametrize("subdivision", SUBDIVISIONS)
 def test_sounding_duration_equals_the_cycle_length(subdivision: str) -> None:
     """§14: the voice sounds for exactly one note per note, at the subdivision."""
-    out = rhythm.apply(_score(12), _params(subdivision=subdivision))
+    out = rhythm.restamp(_voice(12), subdivision)
 
-    note_count = len(_notes(out.voice))
+    note_count = len(_notes(out))
     assert note_count == 12
-    assert sounding_duration(out.voice) == note_count * SOUNDING[subdivision]
+    assert sounding_duration(out) == note_count * SOUNDING[subdivision]
 
 
 @pytest.mark.parametrize("subdivision", SUBDIVISIONS)
@@ -148,32 +123,23 @@ def test_a_note_value_pattern_preserves_total_sounding_duration(
     count: int,
 ) -> None:
     """The assertion that matters: swing redistributes time, never adds it."""
-    straight = rhythm.apply(_score(count), _params(subdivision=subdivision))
-    long_short = rhythm.apply(
-        _score(count),
-        _params(subdivision=subdivision, note_value_pattern="long_short"),
-    )
-    short_long = rhythm.apply(
-        _score(count),
-        _params(subdivision=subdivision, note_value_pattern="short_long"),
-    )
+    straight = rhythm.restamp(_voice(count), subdivision)
+    long_short = rhythm.restamp(_voice(count), subdivision, note_value_pattern="long_short")
+    short_long = rhythm.restamp(_voice(count), subdivision, note_value_pattern="short_long")
 
-    total = sounding_duration(straight.voice)
-    assert sounding_duration(long_short.voice) == total
-    assert sounding_duration(short_long.voice) == total
+    total = sounding_duration(straight)
+    assert sounding_duration(long_short) == total
+    assert sounding_duration(short_long) == total
     assert total == count * SOUNDING[subdivision]
 
 
 @pytest.mark.parametrize("subdivision", ["triplet_eighth", "sextuplet", "quintuplet"])
 def test_each_tuplet_still_holds_its_nominal_written_value(subdivision: str) -> None:
     """A swung tuplet is still three-in-the-time-of-two, not seven-eighths of it."""
-    straight = rhythm.apply(_score(12), _params(subdivision=subdivision))
-    swung = rhythm.apply(
-        _score(12),
-        _params(subdivision=subdivision, note_value_pattern="long_short"),
-    )
+    straight = rhythm.restamp(_voice(12), subdivision)
+    swung = rhythm.restamp(_voice(12), subdivision, note_value_pattern="long_short")
 
-    for plain, swing in zip(straight.voice, swung.voice, strict=True):
+    for plain, swing in zip(straight, swung, strict=True):
         assert sounding_duration([plain]) == sounding_duration([swing])
 
 
@@ -188,25 +154,25 @@ def test_the_subdivision_table_covers_the_registry_exactly() -> None:
 
 @pytest.mark.parametrize(("subdivision", "written"), [("quarter", 4), ("sixteenth", 16)])
 def test_a_plain_subdivision_is_not_wrapped_in_a_tuplet(subdivision: str, written: int) -> None:
-    out = rhythm.apply(_score(4), _params(subdivision=subdivision))
+    out = rhythm.restamp(_voice(4), subdivision)
 
-    assert all(isinstance(item, Note) for item in out.voice)
+    assert all(isinstance(item, Note) for item in out)
     assert _durations(out) == [Fraction(1, written)] * 4
 
 
 def test_a_tuplet_subdivision_groups_by_its_numerator() -> None:
-    out = rhythm.apply(_score(12), _params(subdivision="sextuplet"))
+    out = rhythm.restamp(_voice(12), "sextuplet")
 
-    assert len(out.voice) == 2
-    assert all(isinstance(item, Tuplet) and item.ratio == (6, 4) for item in out.voice)
+    assert len(out) == 2
+    assert all(isinstance(item, Tuplet) and item.ratio == (6, 4) for item in out)
 
 
 def test_a_short_final_group_stays_a_tuplet() -> None:
     """Seven notes at triplet eighths is 3 + 3 + 1, and the last note is still 1/12."""
-    out = rhythm.apply(_score(7), _params(subdivision="triplet_eighth"))
+    out = rhythm.restamp(_voice(7), "triplet_eighth")
 
-    assert [len(item.notes) for item in out.voice if isinstance(item, Tuplet)] == [3, 3, 1]
-    assert sounding_duration(out.voice) == 7 * Fraction(1, 12)
+    assert [len(item.notes) for item in out if isinstance(item, Tuplet)] == [3, 3, 1]
+    assert sounding_duration(out) == 7 * Fraction(1, 12)
 
 
 def test_an_input_tuplet_is_regrouped_rather_than_nested() -> None:
@@ -215,34 +181,9 @@ def test_an_input_tuplet_is_regrouped_rather_than_nested() -> None:
         Tuplet(ratio=(3, 2), notes=[_note(0), _note(1), _note(2)]),
         _note(3),
     ]
-    out = rhythm.apply(_score(voice=incoming), _params(subdivision="eighth"))
+    out = rhythm.restamp(incoming, "eighth")
 
-    assert out.voice == [replace(_note(index), duration=Fraction(1, 8)) for index in range(4)]
-
-
-# --------------------------------------------------------------------------
-# §8: time_signature
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("identifier", "meter"),
-    [
-        ("4_4", (4, 4)),
-        ("3_4", (3, 4)),
-        ("5_4", (5, 4)),
-        ("6_8", (6, 8)),
-        ("7_8", (7, 8)),
-        ("12_8", (12, 8)),
-    ],
-)
-def test_the_time_signature_identifier_becomes_the_score_meter(
-    identifier: str,
-    meter: tuple[int, int],
-) -> None:
-    out = rhythm.apply(_score(4), _params(time_signature=identifier))
-
-    assert out.time_signature == meter
+    assert out == [replace(_note(index), duration=Fraction(1, 8)) for index in range(4)]
 
 
 # --------------------------------------------------------------------------
@@ -251,45 +192,45 @@ def test_the_time_signature_identifier_becomes_the_score_meter(
 
 
 def test_no_accent_pattern_accents_nothing() -> None:
-    out = rhythm.apply(_score(9), _params(accent_pattern="none"))
+    out = rhythm.restamp(_voice(9), "eighth", accent_pattern="none")
 
-    assert [note.accent for note in _notes(out.voice)] == [False] * 9
+    assert [note.accent for note in _notes(out)] == [False] * 9
 
 
 def test_accent_every_3() -> None:
-    out = rhythm.apply(_score(9), _params(accent_pattern="every_3"))
+    out = rhythm.restamp(_voice(9), "eighth", accent_pattern="every_3")
 
-    accents = [note.accent for note in _notes(out.voice)]
+    accents = [note.accent for note in _notes(out)]
     assert accents[::3] == [True] * len(accents[::3])
     assert accents == [True, False, False] * 3
 
 
 def test_accent_every_5() -> None:
-    out = rhythm.apply(_score(11), _params(accent_pattern="every_5"))
+    out = rhythm.restamp(_voice(11), "eighth", accent_pattern="every_5")
 
-    accents = [note.accent for note in _notes(out.voice)]
+    accents = [note.accent for note in _notes(out)]
     assert [index for index, accent in enumerate(accents) if accent] == [0, 5, 10]
 
 
 def test_a_displaced_accent_falls_one_note_after_the_group() -> None:
-    out = rhythm.apply(_score(9), _params(accent_pattern="displaced"))
+    out = rhythm.restamp(_voice(9), "eighth", accent_pattern="displaced")
 
-    accents = [note.accent for note in _notes(out.voice)]
+    accents = [note.accent for note in _notes(out)]
     assert [index for index, accent in enumerate(accents) if accent] == [1, 5]
 
 
 def test_accents_are_indexed_across_tuplet_boundaries() -> None:
     """The accent runs over the notes, not over the groups they were packed into."""
-    out = rhythm.apply(_score(9), _params(subdivision="sextuplet", accent_pattern="every_3"))
+    out = rhythm.restamp(_voice(9), "sextuplet", accent_pattern="every_3")
 
-    assert [note.accent for note in _notes(out.voice)] == [True, False, False] * 3
+    assert [note.accent for note in _notes(out)] == [True, False, False] * 3
 
 
 def test_an_incoming_accent_is_replaced_not_merged() -> None:
     accented: Voice = [replace(_note(index), accent=True) for index in range(4)]
-    out = rhythm.apply(_score(voice=accented), _params(accent_pattern="none"))
+    out = rhythm.restamp(accented, "eighth", accent_pattern="none")
 
-    assert [note.accent for note in _notes(out.voice)] == [False] * 4
+    assert [note.accent for note in _notes(out)] == [False] * 4
 
 
 # --------------------------------------------------------------------------
@@ -298,7 +239,7 @@ def test_an_incoming_accent_is_replaced_not_merged() -> None:
 
 
 def test_long_short_alternates_written_durations() -> None:
-    out = rhythm.apply(_score(8), _params(subdivision="eighth", note_value_pattern="long_short"))
+    out = rhythm.restamp(_voice(8), "eighth", note_value_pattern="long_short")
 
     durations = _durations(out)
     assert durations[0] > durations[1]
@@ -307,22 +248,22 @@ def test_long_short_alternates_written_durations() -> None:
 
 
 def test_short_long_is_the_mirror_of_long_short() -> None:
-    long_short = rhythm.apply(_score(8), _params(note_value_pattern="long_short"))
-    short_long = rhythm.apply(_score(8), _params(note_value_pattern="short_long"))
+    long_short = rhythm.restamp(_voice(8), "eighth", note_value_pattern="long_short")
+    short_long = rhythm.restamp(_voice(8), "eighth", note_value_pattern="short_long")
 
     assert _durations(short_long)[:2] == list(reversed(_durations(long_short)[:2]))
     assert _durations(short_long) == list(reversed(_durations(long_short)))
 
 
 def test_straight_leaves_every_note_at_the_subdivision() -> None:
-    out = rhythm.apply(_score(8), _params(subdivision="eighth"))
+    out = rhythm.restamp(_voice(8), "eighth")
 
     assert _durations(out) == [Fraction(1, 8)] * 8
 
 
 def test_an_unpaired_final_note_keeps_the_straight_value() -> None:
     """A pair needs two notes; the leftover is the only value that adds no time."""
-    out = rhythm.apply(_score(5), _params(subdivision="eighth", note_value_pattern="long_short"))
+    out = rhythm.restamp(_voice(5), "eighth", note_value_pattern="long_short")
 
     assert _durations(out) == [
         Fraction(3, 16),
@@ -335,10 +276,7 @@ def test_an_unpaired_final_note_keeps_the_straight_value() -> None:
 
 def test_the_pairing_restarts_inside_each_tuplet() -> None:
     """Odd groups leave their own leftover, so each tuplet keeps its nominal value."""
-    out = rhythm.apply(
-        _score(6),
-        _params(subdivision="triplet_eighth", note_value_pattern="long_short"),
-    )
+    out = rhythm.restamp(_voice(6), "triplet_eighth", note_value_pattern="long_short")
 
     assert _durations(out) == [Fraction(3, 16), Fraction(1, 16), Fraction(1, 8)] * 2
 
@@ -349,9 +287,9 @@ def test_the_pairing_restarts_inside_each_tuplet() -> None:
 
 
 def test_pitch_position_and_fingering_survive_untouched() -> None:
-    out = rhythm.apply(_score(6), _params(subdivision="sixteenth", accent_pattern="every_3"))
+    out = rhythm.restamp(_voice(6), "sixteenth", accent_pattern="every_3")
 
-    for index, note in enumerate(_notes(out.voice)):
+    for index, note in enumerate(_notes(out)):
         assert (note.pitch, note.string, note.fret, note.finger) == (
             36 + index,
             index % 6,
@@ -360,90 +298,22 @@ def test_pitch_position_and_fingering_survive_untouched() -> None:
         )
 
 
-def test_the_rhythm_axes_join_the_params_the_session_log_records() -> None:
-    out = rhythm.apply(_score(4), _params(subdivision="triplet_eighth", accent_pattern="every_3"))
+def test_the_incoming_voice_is_left_alone() -> None:
+    """`restamp` rebuilds each note with `replace`, so the input is never mutated."""
+    voice = _voice(4)
+    before = list(voice)
 
-    assert out.params == {
-        "family": "scales",
-        "root": 0,
-        "subdivision": "triplet_eighth",
-        "time_signature": "4_4",
-        "accent_pattern": "every_3",
-        "note_value_pattern": "straight",
-    }
+    rhythm.restamp(voice, "sixteenth")
 
-
-def test_the_incoming_score_is_left_alone() -> None:
-    score = _score(4)
-    before = list(score.voice)
-
-    rhythm.apply(score, _params(subdivision="sixteenth"))
-
-    assert score.voice == before
-    assert score.params == {"family": "scales", "root": 0}
-
-
-def test_the_key_survives_the_rebuild() -> None:
-    """This module rebuilds the Score, so the key is a real risk, not a formality.
-
-    A dropped key is not a visible failure: `spell` falls back to the tier 3
-    direction rule and every exercise engraves plausibly and wrongly — which is
-    precisely the defect §10a exists to fix.
-    """
-    source = _score(4, key=Key(6, "dorian"))
-
-    assert rhythm.apply(source, _params()).key == Key(6, "dorian")
-
-
-def test_a_keyless_score_stays_keyless() -> None:
-    """The `chromatic` family's case: `None` is carried, not repaired."""
-    assert rhythm.apply(_score(4, key=None), _params()).key is None
-
-
-def test_the_title_instruction_instrument_and_tempo_are_untouched() -> None:
-    score = _score(4)
-    out = rhythm.apply(score, _params())
-
-    assert (out.title, out.instruction, out.instrument, out.tempo_range) == (
-        score.title,
-        score.instruction,
-        score.instrument,
-        score.tempo_range,
-    )
+    assert voice == before
+    assert _durations(voice) == [Fraction(1, 4)] * 4
 
 
 # --------------------------------------------------------------------------
-# §13: loud failures, never a silent fallback
+# §13: an empty voice is a loud failure, never a silent empty exercise
 # --------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "axis",
-    ["subdivision", "time_signature", "accent_pattern", "note_value_pattern"],
-)
-def test_a_missing_axis_names_the_axis_and_its_accepted_values(axis: str) -> None:
-    params = _params()
-    del params[axis]
-
-    with pytest.raises(ValueError, match=axis) as raised:
-        rhythm.apply(_score(4), params)
-
-    assert str(vocabulary.accepted(axis)) in str(raised.value)
-
-
-def test_an_unknown_value_names_the_accepted_values() -> None:
-    with pytest.raises(ValueError, match="swung") as raised:
-        rhythm.apply(_score(4), _params(subdivision="swung"))
-
-    assert str(vocabulary.accepted("subdivision")) in str(raised.value)
-
-
-def test_a_time_signature_tuple_is_rejected_in_favour_of_the_identifier() -> None:
-    """§13's registry is the vocabulary; the slash lives in the display name only."""
-    with pytest.raises(ValueError, match="time_signature"):
-        rhythm.apply(_score(4), _params(time_signature=(4, 4)))
 
 
 def test_an_empty_voice_is_an_error_rather_than_an_empty_exercise() -> None:
-    with pytest.raises(ValueError, match="no notes"):
-        rhythm.apply(_score(voice=[]), _params())
+    with pytest.raises(ValueError, match="empty voice"):
+        rhythm.restamp([], "eighth")

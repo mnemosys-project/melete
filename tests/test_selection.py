@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from melete import rhythm
+from melete import pipeline, rhythm
 from melete.config import RHYTHM, load_string
 from melete.families import REGISTRY, Family
 from melete.instrument import hand_span
@@ -164,9 +164,9 @@ def specs_of(picks: Sequence[tuple[ExerciseSpec, WeightInputs]]) -> list[Exercis
 
 def printed_voice(config: Config, spec: ExerciseSpec) -> list[Note]:
     """Every note the exercise engraves, realized as §4's pipeline does."""
-    score, _hints = REGISTRY[spec.family].generate(config.instrument, spec.params)
+    score, _plan = pipeline.realize(config.instrument, spec.family, spec.params)
     notes: list[Note] = []
-    for item in rhythm.apply(score, spec.params).voice:
+    for item in score.voice:
         notes.extend(item.notes if isinstance(item, Tuplet) else [item])
     return notes
 
