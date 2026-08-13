@@ -455,7 +455,8 @@ def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> s
     family (§13) and resampling around it would hide it.
     """
     try:
-        score = rhythm.apply(REGISTRY[family].generate(config.instrument, params), params)
+        generated, _hints = REGISTRY[family].generate(config.instrument, params)
+        score = rhythm.apply(generated, params)
     except ValueError as error:
         return str(error)
 

@@ -59,14 +59,16 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import vocabulary
-from melete.families._shared import Parameters, there_and_back
+from melete.families._shared import Parameters, layout_hints, there_and_back
 from melete.instrument import pitch_at
+from melete.layout import Lever
 from melete.score import FINGERS, Note, Score
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from melete.instrument import InstrumentProfile
+    from melete.layout import LayoutHints
     from melete.score import Voice
 
 #: This family's identifier in `vocabulary.AXES["family"]`, and the prefix on
@@ -166,14 +168,19 @@ def _title(permutation: tuple[int, ...], traversal: str, direction: str, shift: 
     return f"Chromatic {fingers}, {', '.join(parts)}"
 
 
-def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
-    """Realize one chromatic permutation exercise on `profile`.
+def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[Score, LayoutHints]:
+    """Realize one chromatic permutation exercise on `profile`, with layout hints.
 
     Pure: the same profile and parameters always produce the same Score. Extra
     keys in `params` are carried into the Score untouched rather than rejected
     — §8's rhythm axes travel in the same dictionary — but every axis this
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
+
+    The hints here are §4.2's minimum: the permutation is the natural cell — one
+    group of `len(permutation)` notes to a beat — with the plain add/drop levers
+    and no seam. The precise `up_down` apex accounting is #116's work; this task
+    only widens the return.
     """
     read = Parameters(_FAMILY, AXES, params)
     permutation = _permutation(read)
@@ -226,7 +233,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         for string, fret, finger in positions
     ]
 
-    return Score(
+    score = Score(
         title=_title(permutation, traversal, direction, shift),
         instruction=INSTRUCTION,
         instrument=profile,
@@ -240,3 +247,11 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         key=None,
         params=dict(params),
     )
+    # Minimal but valid hints (§4.2): the permutation group is the cell, no seam,
+    # plain add/drop levers. #116 refines the `up_down` apex accounting.
+    hints = layout_hints(
+        cell=len(permutation),
+        seam=None,
+        levers=(Lever.ADD_ONE, Lever.DROP_ONE),
+    )
+    return score, hints

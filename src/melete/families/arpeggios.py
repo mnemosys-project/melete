@@ -111,17 +111,20 @@ from melete.families._shared import (
     Parameters,
     apply_direction,
     boxed,
+    layout_hints,
     octaves,
     realizable,
     string_set,
     windowed,
 )
+from melete.layout import Lever
 from melete.score import Note, Score
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from melete.instrument import InstrumentProfile
+    from melete.layout import LayoutHints
     from melete.score import Voice
 
 #: This family's identifier in `vocabulary.AXES["family"]`, and the prefix on
@@ -300,14 +303,19 @@ def _title(
     return f"{chord}, {vocabulary.display('traversal', traversal)}, {figure}"
 
 
-def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
-    """Realize one arpeggio exercise on `profile`.
+def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[Score, LayoutHints]:
+    """Realize one arpeggio exercise on `profile`, with the §4.2 layout hints.
 
     Pure: the same profile and parameters always produce the same Score. Extra
     keys in `params` are carried into the Score untouched rather than rejected
     — §8's rhythm axes travel in the same dictionary — but every axis this
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
+
+    The hints are the fitter's window onto what the voice alone does not carry:
+    the natural cell is one turn of the `pattern` window, and an `up_down`
+    exercise names the apex it turns around at so the fitter's apex levers know
+    where to act. A one-directional exercise has no such seam.
     """
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
@@ -321,7 +329,9 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
 
     pitches = _tones(root, quality, inversion, octave_count)
     places = _places(profile, pitches, strings, traversal)
-    order = apply_direction(windowed(_PATTERN_WINDOWS[pattern], len(pitches)), direction)
+    window = _PATTERN_WINDOWS[pattern]
+    ascending = windowed(window, len(pitches))
+    order = apply_direction(ascending, direction)
 
     voice: Voice = [
         Note(
@@ -335,7 +345,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         for tone in order
     ]
 
-    return Score(
+    score = Score(
         title=_title(root, quality, inversion, traversal, pattern, direction),
         instruction=INSTRUCTION,
         instrument=profile,
@@ -348,3 +358,19 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         key=theory.Key(root % _SEMITONES_PER_OCTAVE, theory.IMPLIED_PARENT[quality]),
         params=dict(params),
     )
+    return score, _hints(window, ascending, direction)
+
+
+def _hints(window: tuple[int, ...], ascending: Sequence[int], direction: str) -> LayoutHints:
+    """The §4.2 layout hints for a realized cycle.
+
+    The cell is one turn of the `pattern` window. `up_down` turns around at the
+    top of the ascending pass — its last note, played once — so the seam is that
+    note's index and the apex levers become legal; a `up` or `down` exercise has
+    no turnaround, so it offers only the trailing add/drop.
+    """
+    seam = len(ascending) - 1 if direction == "up_down" else None
+    levers: tuple[Lever, ...] = (Lever.ADD_ONE, Lever.DROP_ONE)
+    if seam is not None:
+        levers = (*levers, Lever.APEX_REPEAT, Lever.APEX_OMIT)
+    return layout_hints(cell=len(window), seam=seam, levers=levers)

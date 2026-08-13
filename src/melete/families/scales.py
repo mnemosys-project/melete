@@ -96,17 +96,20 @@ from melete.families._shared import (
     Parameters,
     apply_direction,
     boxed,
+    layout_hints,
     octaves,
     realizable,
     string_set,
     windowed,
 )
+from melete.layout import Lever
 from melete.score import Note, Score
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from melete.instrument import InstrumentProfile
+    from melete.layout import LayoutHints
     from melete.score import Voice
 
 #: This family's identifier in `vocabulary.AXES["family"]`, and the prefix on
@@ -259,14 +262,18 @@ def _title(root: int, scale_type: str, traversal: str, pattern: str, direction: 
     )
 
 
-def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
-    """Realize one scale exercise on `profile`.
+def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[Score, LayoutHints]:
+    """Realize one scale exercise on `profile`, with the §4.2 layout hints.
 
     Pure: the same profile and parameters always produce the same Score. Extra
     keys in `params` are carried into the Score untouched rather than rejected
     — §8's rhythm axes travel in the same dictionary — but every axis this
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
+
+    The hints here are §4.2's minimum: one turn of the `pattern` window is the
+    natural cell, with the plain add/drop levers and no seam. The precise
+    `up_down` apex accounting is #117's work; this task only widens the return.
     """
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
@@ -293,7 +300,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         for degree in order
     ]
 
-    return Score(
+    score = Score(
         title=_title(root, scale_type, traversal, pattern, direction),
         instruction=INSTRUCTION,
         instrument=profile,
@@ -305,3 +312,11 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         key=theory.Key(root % len(theory.PITCH_CLASSES), scale_type),
         params=dict(params),
     )
+    # Minimal but valid hints (§4.2): one turn of the pattern window is the cell,
+    # no seam, plain add/drop levers. #117 refines the `up_down` apex accounting.
+    hints = layout_hints(
+        cell=max(1, len(_PATTERN_WINDOWS[pattern])),
+        seam=None,
+        levers=(Lever.ADD_ONE, Lever.DROP_ONE),
+    )
+    return score, hints

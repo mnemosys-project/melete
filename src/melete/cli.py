@@ -318,7 +318,7 @@ def _score(active: Config, spec: ExerciseSpec) -> Score:
     documented override can be applied, and without it the setting would be a
     comment in the configuration file.
     """
-    score = REGISTRY[spec.family].generate(active.instrument, spec.params)
+    score, _hints = REGISTRY[spec.family].generate(active.instrument, spec.params)
     return replace(rhythm.apply(score, spec.params), tempo_range=active.pool[spec.family].tempo)
 
 
