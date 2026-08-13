@@ -100,9 +100,23 @@ def test_add_one_repeats_the_trailing_note() -> None:
     assert _pitches(realize_lever(voice, Lever.ADD_ONE, seam=None)) == [23, 24, 25, 25]
 
 
+def test_add_one_repeats_a_whole_cell() -> None:
+    # §132: add/drop move a whole cell so the beat count stays integral. On a
+    # two-note cell, ADD_ONE repeats the trailing two notes, not one.
+    voice: Voice = [_n(23), _n(24), _n(25), _n(26)]
+    result = realize_lever(voice, Lever.ADD_ONE, seam=None, cell=2)
+    assert _pitches(result) == [23, 24, 25, 26, 25, 26]
+
+
 def test_drop_one_removes_the_trailing_note() -> None:
     voice: Voice = [_n(23), _n(24), _n(25)]
     assert _pitches(realize_lever(voice, Lever.DROP_ONE, seam=None)) == [23, 24]
+
+
+def test_drop_one_removes_a_whole_cell() -> None:
+    # The mirror of add: DROP_ONE drops the trailing two-note cell.
+    voice: Voice = [_n(23), _n(24), _n(25), _n(26)]
+    assert _pitches(realize_lever(voice, Lever.DROP_ONE, seam=None, cell=2)) == [23, 24]
 
 
 @pytest.mark.parametrize("lever", [Lever.APEX_REPEAT, Lever.APEX_OMIT])
@@ -216,6 +230,29 @@ def test_fit_keeps_an_odd_but_sane_count_when_no_lever_helps() -> None:
     assert plan.time_signature == (2, 4)
     assert plan.bars == 5
     assert plan.levers_applied == ()
+
+
+def test_fit_drops_a_whole_cell_to_reach_an_even_meter() -> None:
+    # §132: 26 notes / cell 2 = 13 beats is prime, so no meter divides it. Every
+    # lever now moves the count by exactly one cell (= one beat), so DROP_ONE
+    # reaches 24 -> 12 beats -> an even, sane meter; ADD_ONE reaches 28 -> 14 ->
+    # 2/4 x 7 (odd) and loses on quality. Exactly one lever fires.
+    plan = fit(26, LayoutHints(cell=2, seam=None, levers=(Lever.DROP_ONE, Lever.ADD_ONE)))
+    assert plan.subdivision == "eighth"
+    assert plan.time_signature == (6, 4)
+    assert plan.bars == 2
+    assert plan.levers_applied == (Lever.DROP_ONE,)
+
+
+def test_fit_adds_a_cell_rather_than_dropping_to_an_empty_exercise() -> None:
+    # §132 edge: a single-cell voice (4 notes / cell 4 = 1 beat) has no sane
+    # meter. DROP_ONE would empty it (0 beats), which is no exercise at all and
+    # must not be chosen over ADD_ONE's 2/4 bar — dropping the last cell can
+    # never win, so the fitter adds a cell instead.
+    plan = fit(4, LayoutHints(cell=4, seam=None, levers=(Lever.ADD_ONE, Lever.DROP_ONE)))
+    assert plan.time_signature == (2, 4)
+    assert plan.bars == 1
+    assert plan.levers_applied == (Lever.ADD_ONE,)
 
 
 def test_plan_voice_realizes_the_chosen_lever_on_the_notes() -> None:

@@ -311,9 +311,17 @@ def test_a_descending_pattern_is_the_retrograde_of_the_ascending_one() -> None:
     assert down == up[::-1]
 
 
-def test_up_down_in_thirds_does_not_replay_the_apex() -> None:
+def test_up_down_in_thirds_turns_around_at_the_cell_boundary() -> None:
+    # thirds is a two-note cell, so up_down turns around a whole cell at a time
+    # (§132): 13 cells up and 12 back is 25 cells = 50 notes, not the 51 a
+    # note-level turnaround would leave — an untileable half-cell that no
+    # `cell = 2` meter divides.
     score = generate(BASS6, params(pattern="thirds", direction="up_down"))
-    assert len(score.voice) == 51  # 26 up + 25 down
+    played = pitches_of(score)
+    assert len(played) == 50  # 26 up + 24 back
+    # The apex cell (degrees 12, 14) is played once; the return is the retrograde
+    # of the ascent minus that apex cell — a descending third, high note first.
+    assert played[24:28] == [IONIAN_A2[i] for i in (12, 14, 13, 11)]
 
 
 # --------------------------------------------------------------------------

@@ -94,8 +94,8 @@ from typing import TYPE_CHECKING
 from melete import theory, vocabulary
 from melete.families._shared import (
     Parameters,
-    apply_direction,
     boxed,
+    directed_by_cell,
     layout_hints,
     octaves,
     realizable,
@@ -323,7 +323,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
             raise
 
     ascending = windowed(_PATTERN_WINDOWS[pattern], len(pitches))
-    order = apply_direction(ascending, direction)
+    order = directed_by_cell(ascending, direction, len(_PATTERN_WINDOWS[pattern]))
 
     voice: Voice = [
         Note(
@@ -353,9 +353,10 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         params=carried,
     )
     # §4.2 hints: the pattern window is the cell; an up_down voice is
-    # `there_and_back` over the ascending order, so its apex — the last ascending
-    # note — is the seam, and the fitter reaches a whole bar by repeating or
-    # omitting that apex. A one-directional voice has no apex: no seam, add/drop.
+    # `directed_by_cell` over the ascending order, turning around at a cell
+    # boundary, so its apex — the last ascending note — is the seam, and the
+    # fitter reaches a whole bar by repeating or omitting that apex cell. A
+    # one-directional voice has no apex: no seam, add/drop.
     up_and_down = direction == _UP_DOWN
     hints = layout_hints(
         cell=len(_PATTERN_WINDOWS[pattern]),
