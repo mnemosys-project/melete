@@ -177,10 +177,11 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
 
-    The hints here are §4.2's minimum: the permutation is the natural cell — one
-    group of `len(permutation)` notes to a beat — with the plain add/drop levers
-    and no seam. The precise `up_down` apex accounting is #116's work; this task
-    only widens the return.
+    The hints are §4.2's: the permutation is the natural cell — one group of
+    `len(permutation)` notes to a beat. An `up_down` pass turns around on its
+    apex, so it carries a seam and the apex levers that repeat or omit that
+    turnaround cell to reach a whole-bar count; a one-way pass has no turnaround,
+    so it carries no seam and only the plain add/drop-one levers.
     """
     read = Parameters(_FAMILY, AXES, params)
     permutation = _permutation(read)
@@ -247,11 +248,17 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         key=None,
         params=dict(params),
     )
-    # Minimal but valid hints (§4.2): the permutation group is the cell, no seam,
-    # plain add/drop levers. #116 refines the `up_down` apex accounting.
-    hints = layout_hints(
-        cell=len(permutation),
-        seam=None,
-        levers=(Lever.ADD_ONE, Lever.DROP_ONE),
-    )
+    # The permutation group is the cell. An `up_down` pass turns around on its
+    # apex — the last note of the ascending half — which is `span` string-groups
+    # in, so the apex note index is `span * cell - 1`. That turnaround cell is the
+    # one the apex levers repeat or omit to reach a whole-bar count (§4.6); a
+    # one-way pass has no turnaround, so it carries no seam and only add/drop-one.
+    cell = len(permutation)
+    if direction == "up_down":
+        seam: int | None = span * cell - 1
+        levers = (Lever.APEX_REPEAT, Lever.APEX_OMIT)
+    else:
+        seam = None
+        levers = (Lever.ADD_ONE, Lever.DROP_ONE)
+    hints = layout_hints(cell=cell, seam=seam, levers=levers)
     return score, hints
