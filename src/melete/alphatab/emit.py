@@ -116,6 +116,16 @@ BAR_SEPARATOR = "|"
 #: previous note (spike Q2). Not a fret number — the sounded note is the origin.
 TIE_FRET = "-"
 
+#: The repeat-open marker (`\ro`) and repeat-close-for-two-passes marker
+#: (`\rc 2`), which bracket an exercise-level repeat (`Score.repeat`, spec §5).
+#: Both were spike-confirmed against `@coderline/alphatab` 1.8.4 by rendering a
+#: probe and re-importing the `.gp`: `\ro` sets the master bar's `isRepeatStart`
+#: and `\rc 2` sets its `repeatCount`. The close **leads** its bar rather than
+#: trailing it — a trailing `\rc` makes alphaTab open a spurious empty master
+#: bar for the marker, so it is prepended to the last bar's beats (melete#112).
+REPEAT_OPEN = "\\ro"
+REPEAT_CLOSE = "\\rc 2"
+
 #: The seven letters in ascending order, and the pitch class each names
 #: unaltered. A key signature adds sharps in the order F C G D A E B and flats in
 #: the order B E A D G C F; `_signature` walks these to name each letter's
@@ -456,6 +466,10 @@ def _exercise_directives(score: Score, section: str | None) -> str:
     The tempo is a single value where `score.tempo_range` is a range: alphaTab's
     tempo is a playback automation, not a printed range, so the slowest — the
     practice starting tempo — is used.
+
+    When `score.repeat`, the repeat-open marker follows the tempo so it leads the
+    first bar (spec §5): a `\\ro` at the start of a bar opens the repeat there.
+    Its matching close is placed by `_exercise_bars` on the last bar.
     """
     beats, beat_value = score.time_signature
     slowest, _ = score.tempo_range
@@ -469,6 +483,8 @@ def _exercise_directives(score: Score, section: str | None) -> str:
         directives.append(f"\\ks {ks_name}")
     directives.append("\\clef bass")
     directives.append(f"\\tempo {slowest}")
+    if score.repeat:
+        directives.append(REPEAT_OPEN)
     return " ".join(directives)
 
 
@@ -488,6 +504,15 @@ def _exercise_bars(score: Score, section: str | None) -> list[str]:
     # one bar — so the first body always has beats to prepend the directives to.
     directives = _exercise_directives(score, section)
     bodies[0] = f"{directives} {bodies[0]}"
+
+    # The repeat close leads the last bar: a `\rc` after that bar's beats makes
+    # alphaTab open a spurious empty master bar for the marker (spike-confirmed),
+    # so it is prepended, before the beats and any directives already merged in.
+    # For a single-bar exercise the last bar is also the first, so the close sits
+    # ahead of the directives on the one bar, which alphaTab reads as that bar's
+    # metadata (spike-confirmed: one master bar carrying both repeat markers).
+    if score.repeat:
+        bodies[-1] = f"{REPEAT_CLOSE} {bodies[-1]}"
     return bodies
 
 

@@ -1,0 +1,5 @@
+\title "repeat"
+\tuning(C3 G2 D2 A1 E1 B0)
+\instrument(34)
+.
+\ts 4 4 \clef bass \tempo 80 \ro 0.6.4 2.6{acc #}.4 3.6.4 5.6.4 | \rc 2 0.6.4 2.6{acc #}.4 3.6.4 5.6.4

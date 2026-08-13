@@ -241,6 +241,12 @@ class Score:
     family that neglects to set a key produces a Score that engraves perfectly
     well and spells every note by direction. `tests/families/conftest.py` says
     what that costs; each family states its key in its own test.
+
+    `repeat` wraps the whole exercise in a repeat (spec §5): the practice loop
+    plays the exercise twice rather than once. It is a plain intent flag on the
+    renderer-agnostic side — *whether* the exercise repeats — and carries no
+    knowledge of how a renderer draws a repeat barline; the emitter owns that.
+    It defaults `False`, so an exercise plays once unless a family opts in.
     """
 
     title: str
@@ -251,6 +257,7 @@ class Score:
     voice: Voice
     key: theory.Key | None = None  # None = no tonal center, spelled by direction
     params: dict[str, object] = field(default_factory=dict)
+    repeat: bool = False  # wrap the whole exercise in a repeat (spec §5)
 
     def __post_init__(self) -> None:
         beats, beat_value = self.time_signature

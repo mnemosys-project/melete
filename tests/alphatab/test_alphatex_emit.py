@@ -84,6 +84,8 @@ def sample_score(
     instruction: str = "",
     key: theory.Key | None = _SAMPLE_KEY,
     params: dict[str, object] | None = None,
+    *,
+    repeat: bool = False,
 ) -> Score:
     """The fixed sample exercise the goldens pin."""
     return Score(
@@ -110,6 +112,7 @@ def sample_score(
         ],
         key=key,
         params=dict(params) if params is not None else {"root": 9, "scale_type": "harmonic_minor"},
+        repeat=repeat,
     )
 
 
@@ -363,6 +366,67 @@ def test_a_note_crossing_the_barline_is_tied_onto_the_destination() -> None:
 def test_the_barline_separates_the_two_measures() -> None:
     text = emit_score(sample_score())
     assert f" {emit.BAR_SEPARATOR} " in text
+
+
+# --------------------------------------------------------------------------
+# The exercise-level repeat (spec §5; melete#112)
+# --------------------------------------------------------------------------
+
+
+def test_a_score_that_does_not_repeat_emits_no_repeat_tokens() -> None:
+    text = emit_score(sample_score())
+    assert emit.REPEAT_OPEN not in text
+    assert emit.REPEAT_CLOSE not in text
+
+
+def test_a_repeated_exercise_opens_the_repeat_before_the_first_note() -> None:
+    # `\ro` leads the first bar: it must sit ahead of the first beat token so the
+    # repeat brackets the whole exercise (spike-confirmed: an opener at the start
+    # of the bar sets the master bar's isRepeatStart).
+    text = emit_score(sample_score(repeat=True))
+    open_at = text.index(emit.REPEAT_OPEN)
+    # The first note token is A1 on IR string 2 -> alphaTex string 4, fret 0.
+    first_note_at = text.index("0.4{lf 2 ac}.4")
+    assert open_at < first_note_at
+
+
+def test_a_repeated_exercise_closes_the_repeat() -> None:
+    # `\rc 2` closes the repeat on the last bar (two passes). The spike showed it
+    # must LEAD the last bar rather than trail it — a trailing close spawns a
+    # spurious empty master bar — so we assert containment, not a suffix.
+    text = emit_score(sample_score(repeat=True))
+    assert emit.REPEAT_CLOSE in text
+
+
+def test_the_repeat_close_leads_the_last_bar_not_a_new_empty_one() -> None:
+    # A trailing `\rc 2` makes alphaTab open an extra empty bar (spike finding).
+    # Placing the close ahead of the last bar's beats keeps the bar count right,
+    # so the close must appear after the final barline and before that bar's
+    # first beat, never at the very end of the document.
+    text = emit_score(sample_score(repeat=True)).rstrip("\n")
+    last_barline = text.rindex(f" {emit.BAR_SEPARATOR} ")
+    close_at = text.rindex(emit.REPEAT_CLOSE)
+    assert close_at > last_barline
+    assert not text.endswith(emit.REPEAT_CLOSE)
+
+
+def test_a_single_bar_exercise_carries_both_repeat_tokens() -> None:
+    # When the exercise is one bar, the open and close ride the same bar; both
+    # tokens must still appear (spike-confirmed: one master bar with both
+    # isRepeatStart and repeatCount set).
+    score = Score(
+        title="one bar",
+        instruction="",
+        instrument=_BASS6,
+        time_signature=(4, 4),
+        tempo_range=(80, 100),
+        voice=[_n(48, 5, _QUARTER) for _ in range(4)],
+        key=None,
+        repeat=True,
+    )
+    text = emit_score(score)
+    assert emit.REPEAT_OPEN in text
+    assert emit.REPEAT_CLOSE in text
 
 
 # --------------------------------------------------------------------------
