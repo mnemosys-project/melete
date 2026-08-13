@@ -82,10 +82,13 @@ if TYPE_CHECKING:
 
     from melete.score import Note, Voice
 
-#: §8's `subdivision` axis: the **written** duration one note gets, and the
-#: tuplet ratio it is engraved under, or `None` when it needs no tuplet.
-#: A sextuplet is `(6, 4)` rather than `(3, 2)` because six sixteenths in the
-#: time of four is the group a player reads as one beat.
+#: The subdivision table §8 names: the **written** duration one note gets, and
+#: the tuplet ratio it is engraved under, or `None` when it needs no tuplet.
+#: This is *not* a sampled axis — the layout fitter picks the subdivision (#118)
+#: and `restamp` looks its duration and ratio up here; #119 retired the sampled
+#: `subdivision` axis but this table stays, because the fitter and `restamp`
+#: both read it. A sextuplet is `(6, 4)` rather than `(3, 2)` because six
+#: sixteenths in the time of four is the group a player reads as one beat.
 SUBDIVISIONS: dict[str, tuple[Fraction, tuple[int, int] | None]] = {
     "quarter": (Fraction(1, 4), None),
     "eighth": (Fraction(1, 8), None),
@@ -123,15 +126,16 @@ NOTE_VALUE_PATTERNS: dict[str, tuple[Fraction, Fraction] | None] = {
     "short_long": (SHORT, LONG),
 }
 
-#: §8's four axes, named exactly as `vocabulary` and `[pool.rhythm]` name them.
-#: The selector samples these alongside a family's own axes and they travel in
-#: the one `params` dictionary §12's cover page and `session.json` read back;
-#: `cli` also lists them under the rhythm modifier. `restamp` consumes only
-#: `subdivision`, `accent_pattern` and `note_value_pattern` of them — the
-#: `time_signature` axis is the fitter's job now (#118), and retiring the two
-#: axes the fitter supersedes is #119's. Kept as one list so no caller keeps a
-#: private copy that could drift.
-AXES = ("subdivision", "time_signature", "accent_pattern", "note_value_pattern")
+#: §8's sampled rhythm axes, named exactly as `vocabulary` and `[pool.rhythm]`
+#: name them. The selector samples these alongside a family's own axes and they
+#: travel in the one `params` dictionary §12's cover page and `session.json`
+#: read back; `cli` also lists them under the rhythm modifier. `restamp`
+#: consumes both, plus a `subdivision` the fitter hands it. The `subdivision`
+#: and `time_signature` axes are gone (#119): the layout fitter derives the
+#: meter and subdivision from the note count so the voice tiles into whole
+#: measures (#118), which left sampling them dead. Kept as one list so no caller
+#: keeps a private copy that could drift.
+AXES = ("accent_pattern", "note_value_pattern")
 
 _PAIR = 2
 

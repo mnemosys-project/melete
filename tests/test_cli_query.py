@@ -82,8 +82,6 @@ shifts = ["none", "fret_per_cycle"]
 spans = [3, 4]
 
 [pool.rhythm]
-subdivisions = ["eighth", "triplet_eighth", "sixteenth"]
-time_signatures = ["4_4", "3_4"]
 accent_patterns = ["none", "every_3"]
 note_value_patterns = ["straight", "long_short"]
 """

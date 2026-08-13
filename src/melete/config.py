@@ -357,8 +357,6 @@ _SHIFT = _registry("shifts", "shift")
 _CONTEXT = _registry("contexts", "context")
 _STRING_SKIP = _registry("string_skips", "string_skip")
 
-_SUBDIVISION = _registry("subdivisions", "subdivision")
-_TIME_SIGNATURE = _registry("time_signatures", "time_signature")
 _ACCENT_PATTERN = _registry("accent_patterns", "accent_pattern")
 _NOTE_VALUE_PATTERN = _registry("note_value_patterns", "note_value_pattern")
 
@@ -412,11 +410,12 @@ _AXES_BY_FAMILY: dict[str, tuple[_Axis, ...]] = {
     ),
 }
 
-#: §8's four axes. Rhythm is one modifier over every family, so it has one
-#: pool rather than one per family.
+#: §8's sampled rhythm axes. Rhythm is one modifier over every family, so it has
+#: one pool rather than one per family. The `subdivision` and `time_signature`
+#: axes were retired (#119) once the layout fitter took over deriving the meter
+#: and subdivision (#118); `_reject_unknown` now refuses those keys under
+#: `[pool.rhythm]` like any other unknown one.
 _RHYTHM_AXES: tuple[_Axis, ...] = (
-    _SUBDIVISION,
-    _TIME_SIGNATURE,
     _ACCENT_PATTERN,
     _NOTE_VALUE_PATTERN,
 )

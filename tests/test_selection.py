@@ -112,8 +112,6 @@ INTERVALS_AXES: dict[str, str] = {
 }
 
 RHYTHM_AXES: dict[str, str] = {
-    "subdivisions": '["eighth", "triplet_eighth", "sixteenth"]',
-    "time_signatures": '["4_4", "3_4"]',
     "accent_patterns": '["none", "every_3"]',
     "note_value_patterns": '["straight", "long_short"]',
 }
@@ -191,8 +189,6 @@ SPEC_PARAMS: dict[str, AxisValue] = {
     "pattern": "straight",
     "range_octaves": 2,
     "direction": "up",
-    "subdivision": "eighth",
-    "time_signature": "4_4",
     "accent_pattern": "none",
     "note_value_pattern": "straight",
 }
@@ -397,7 +393,7 @@ def test_a_selection_is_pushed_onto_the_history_at_distance_zero() -> None:
     picks = select(config, [], seeded(10))
     drawn, next_slot = picks[0][0], picks[1][1]
 
-    for axis in ("scale_type", "pattern", "direction", "subdivision"):
+    for axis in ("scale_type", "pattern", "direction", "accent_pattern"):
         assert next_slot.distances[axis][axis_key(drawn.params[axis])] == 0
 
 
@@ -613,13 +609,13 @@ def test_an_unconfigured_rhythm_axis_is_reported_against_its_own_section() -> No
     config = make_config(
         section("scales", SCALES_AXES),
         session=shape(scales=1),
-        rhythm_pool=section(RHYTHM, RHYTHM_AXES, subdivisions=""),
+        rhythm_pool=section(RHYTHM, RHYTHM_AXES, accent_patterns=""),
     )
 
     with pytest.raises(SelectionError) as raised:
         select(config, [], seeded(27))
 
-    assert "'subdivision'" in str(raised.value)
+    assert "'accent_pattern'" in str(raised.value)
     assert "[pool.rhythm]" in str(raised.value)
 
 
@@ -672,8 +668,6 @@ MEASURED_AXES = (
     "direction",
     "string_set",
     "range_octaves",
-    "subdivision",
-    "time_signature",
     "accent_pattern",
     "note_value_pattern",
 )
