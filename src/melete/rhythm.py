@@ -1,4 +1,4 @@
-"""The rhythm modifier — one `Score -> Score` function over all four families.
+"""The rhythm modifier — the `Voice -> Voice` restamping step of §4's pipeline.
 
 Rhythm is **not** a fifth family (spec §8, decision #3). It is a cross-cutting
 modifier, because overload dimensions are orthogonal: treating rhythm as a
@@ -6,17 +6,20 @@ parameter axis multiplies the variant space rather than adding to it, and keeps
 the rhythm logic in one component instead of four copies of it.
 
 A family decides *which* notes and *where* on the neck; this module decides
-*when*. It therefore restamps every duration and every accent, and it discards
-whatever grouping arrived — a family's tuplets, if it emitted any, are not a
-second opinion about the rhythm. Pitch, string, fret and fingering are carried
-through untouched.
+*when*. `restamp` therefore restamps every duration and every accent, and it
+discards whatever grouping arrived — a family's tuplets, if it emitted any, are
+not a second opinion about the rhythm. Pitch, string, fret and fingering are
+carried through untouched, because `restamp` rebuilds each note with `replace`
+and names only `duration` and `accent`.
 
-So is `key`. It arrives with the Score and leaves with it, because `replace`
-copies every field this module does not name — which is the whole reason the
-rebuild is written as a `replace` and not as a fresh `Score(...)`. A hand-built
-Score here would drop the key on the first field anyone added, and the sheet
-would keep engraving: every note spelled by direction instead of by the key
-(§10a), with nothing raising.
+## The subdivision is the fitter's, not a sampled axis (#118)
+
+`restamp` is handed the subdivision rather than choosing one. The layout fitter
+(`layout.py`, spec §4) derives the subdivision and the meter from the note count
+so the voice tiles into whole measures, and `pipeline.realize` wires the fitter
+to this step. This module owns only the second half — written durations, tuplet
+grouping and the accent overlay — and never counts a bar or sets a meter; the
+`Score`'s `time_signature`, `key` and `params` are the caller's to carry.
 
 ## Written durations, always (decision #16)
 
@@ -60,8 +63,10 @@ tuplet under the same ratio rather than being flattened — flattening it would
 re-time those notes from `1/12` to `1/8` and stretch the exercise. That is the
 same stance §7 takes on the short final *measure*: accept it, do not pad it.
 
-Measures are not modelled anywhere (§6), so `time_signature` here is a label
-placed on the `Score` for the emitter. Nothing in this module counts bars.
+When the subdivision comes from the fitter (#118) the group *is* a whole number
+of beats and there is no short final group at all; a short final group only
+arises when `restamp` is called with a subdivision the note count is not a
+multiple of, which the pipeline never does but a direct caller may.
 """
 
 from __future__ import annotations
@@ -70,13 +75,12 @@ from dataclasses import replace
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from melete import vocabulary
 from melete.score import Tuplet
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Iterator, Sequence
 
-    from melete.score import Note, Score, Voice
+    from melete.score import Note, Voice
 
 #: §8's `subdivision` axis: the **written** duration one note gets, and the
 #: tuplet ratio it is engraved under, or `None` when it needs no tuplet.
@@ -120,72 +124,54 @@ NOTE_VALUE_PATTERNS: dict[str, tuple[Fraction, Fraction] | None] = {
 }
 
 #: §8's four axes, named exactly as `vocabulary` and `[pool.rhythm]` name them.
-#: Resolving them as one mapping is what makes the `params` this module records
-#: complete by construction: whatever it reads is exactly what §12's cover page
-#: and `session.json` get back, with no second list to keep in step.
+#: The selector samples these alongside a family's own axes and they travel in
+#: the one `params` dictionary §12's cover page and `session.json` read back;
+#: `cli` also lists them under the rhythm modifier. `restamp` consumes only
+#: `subdivision`, `accent_pattern` and `note_value_pattern` of them — the
+#: `time_signature` axis is the fitter's job now (#118), and retiring the two
+#: axes the fitter supersedes is #119's. Kept as one list so no caller keeps a
+#: private copy that could drift.
 AXES = ("subdivision", "time_signature", "accent_pattern", "note_value_pattern")
 
 _PAIR = 2
 
 
-def apply(score: Score, params: Mapping[str, object]) -> Score:
-    """`score` re-rhythmed under §8's four axes, as a new `Score`.
+def restamp(
+    voice: Voice,
+    subdivision: str,
+    *,
+    note_value_pattern: str = "straight",
+    accent_pattern: str = "none",
+) -> Voice:
+    """Stamp durations/tuplets/accents onto `voice` at a *given* subdivision (§7).
 
-    `params` is read, not consumed: it may carry the family's axes alongside
-    the rhythm ones, since §12's cover page and `session.json` describe an
-    exercise with a single merged dictionary. All four rhythm axes must be
-    present and must be canonical identifiers from `vocabulary` — a missing or
-    misspelled axis raises, naming it and its accepted values, because a
-    default silently substituted here is a wrong exercise on the page (§13).
+    The subdivision and meter are chosen by the layout fitter, not sampled here
+    (#118): `pipeline.realize` derives them from the note count so the voice
+    tiles into whole measures, then hands the subdivision to this step. The
+    `note_value_pattern` and `accent_pattern` are §8's two grid-preserving
+    overlays — a pattern redistributes time inside a pair and never adds any, so
+    the voice still sounds one note per note at the subdivision (module
+    docstring). Pitch, string, fret and fingering are carried through untouched.
+
+    An empty voice is a bug upstream, not an exercise of length zero: a family
+    emits one complete cycle of its pattern (§7), so it raises rather than
+    restamping to nothing.
     """
-    axes = {axis: _axis(params, axis) for axis in AXES}
-    written, ratio = SUBDIVISIONS[axes["subdivision"]]
-
-    notes = list(_flatten(score.voice))
+    written, ratio = SUBDIVISIONS[subdivision]
+    notes = list(_flatten(voice))
     if not notes:
-        msg = (
-            f"cannot apply rhythm to {score.title!r}: the score has no notes. "
-            f"A family emits one complete cycle of its pattern (§7), so an "
-            f"empty voice is a bug upstream, not an exercise of length zero."
-        )
+        msg = "cannot restamp an empty voice; a family emits one full cycle (§7)"
         raise ValueError(msg)
 
     group = ratio[0] if ratio is not None else len(notes)
-    pattern = NOTE_VALUE_PATTERNS[axes["note_value_pattern"]]
+    pattern = NOTE_VALUE_PATTERNS[note_value_pattern]
     durations = _durations(len(notes), written, pattern, group)
-    accents = _accents(len(notes), ACCENTS[axes["accent_pattern"]])
-
+    accents = _accents(len(notes), ACCENTS[accent_pattern])
     restamped = [
         replace(note, duration=duration, accent=accent)
         for note, duration, accent in zip(notes, durations, accents, strict=True)
     ]
-
-    return replace(
-        score,
-        time_signature=_meter(axes["time_signature"]),
-        voice=_grouped(restamped, ratio),
-        params={**score.params, **axes},
-    )
-
-
-def _axis(params: Mapping[str, object], axis: str) -> str:
-    """One canonical identifier out of `params`, or a `ValueError` naming it."""
-    accepted = vocabulary.accepted(axis)
-    if axis not in params:
-        msg = f"rhythm requires a {axis}; accepted: {accepted}"
-        raise ValueError(msg)
-
-    value = params[axis]
-    if not isinstance(value, str) or value not in accepted:
-        msg = f"unknown {axis} {value!r}; accepted: {accepted}"
-        raise ValueError(msg)
-    return value
-
-
-def _meter(identifier: str) -> tuple[int, int]:
-    """`"7_8"` as `(7, 8)`. The slash lives in the display name only (§13)."""
-    beats, _, beat_value = identifier.partition("_")
-    return int(beats), int(beat_value)
+    return _grouped(restamped, ratio)
 
 
 def _flatten(voice: Voice) -> Iterator[Note]:

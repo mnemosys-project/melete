@@ -73,7 +73,7 @@ from pathlib import Path
 from random import Random
 from typing import TYPE_CHECKING
 
-from melete import config, rhythm, session, vocabulary
+from melete import config, pipeline, rhythm, session, vocabulary
 from melete.alphatab import emit, render
 from melete.families import REGISTRY
 from melete.selection import SelectionError, select
@@ -310,16 +310,20 @@ def _overridden(active: Config, args: argparse.Namespace) -> Config:
 
 
 def _score(active: Config, spec: ExerciseSpec) -> Score:
-    """One specification realized: §4's family generator, then §8's modifier.
+    """One specification realized: §4's family, fitter and rhythm modifier.
+
+    `pipeline.realize` runs the three renderer-agnostic stages — the family (§7),
+    the layout fitter (§4) that derives a whole-bar meter and subdivision, and
+    §8's rhythm modifier — and returns the laid-out Score.
 
     The tempo range is the family's own until `[pool.<family>] tempo` overrides
     it (§10, decision #20). It is not a sampled axis, so it never travels in
     `params` and never reaches the family — this is the only place the
     documented override can be applied, and without it the setting would be a
-    comment in the configuration file.
+    comment in the configuration file. `realize` deliberately leaves it alone.
     """
-    score, _hints = REGISTRY[spec.family].generate(active.instrument, spec.params)
-    return replace(rhythm.apply(score, spec.params), tempo_range=active.pool[spec.family].tempo)
+    laid_out, _plan = pipeline.realize(active.instrument, spec.family, spec.params)
+    return replace(laid_out, tempo_range=active.pool[spec.family].tempo)
 
 
 def _stem(number: int) -> str:

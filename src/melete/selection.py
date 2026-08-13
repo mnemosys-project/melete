@@ -102,7 +102,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from melete import rhythm
+from melete import pipeline, rhythm
 from melete.config import DEFAULT_HORIZON, RHYTHM
 from melete.families import REGISTRY
 from melete.instrument import hand_span
@@ -216,7 +216,7 @@ class ExerciseSpec:
     #: A key of `families.REGISTRY`, and of `vocabulary.AXES["family"]`.
     family: str
     #: Every axis the family reads, plus §8's four rhythm axes, which travel in
-    #: the same dictionary and are read by `rhythm.apply` further down §4's
+    #: the same dictionary and are read by `pipeline.realize` further down §4's
     #: pipeline.
     params: dict[str, AxisValue]
 
@@ -402,8 +402,8 @@ def _sample(family: str, config: Config, slot: _Slot) -> dict[str, AxisValue]:
     """One candidate specification: every axis of `family`, drawn independently.
 
     §8's rhythm axes are drawn alongside them and travel in the same dictionary,
-    because §4's pipeline hands one `params` to the family and then to
-    `rhythm.apply`, and §9 counts `subdivision` and `accent_pattern` as axes
+    because §4's pipeline hands one `params` to the family and then through
+    `pipeline.realize`, and §9 counts `subdivision` and `accent_pattern` as axes
     like any other.
     """
     params: dict[str, AxisValue] = {}
@@ -443,20 +443,22 @@ def _realized(params: dict[str, AxisValue], profile: InstrumentProfile) -> dict[
 def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> str | None:
     """Why this specification cannot be used, or `None` if it can.
 
-    The exercise is realized exactly as §4's pipeline realizes it — the family,
-    then §8's rhythm modifier — because both halves can reject a draw and
-    because `max_notes` bounds the notes that get *printed*. A family raises
-    `ValueError` naming what could not be satisfied when a specification runs
-    off the neck or asks a traversal for a string count it does not have; that
-    is the gate, and the message is kept because §13 makes the eventual failure
-    report the whole value of the loud error.
+    The exercise is realized exactly as §4's pipeline realizes it —
+    `pipeline.realize` runs the family, the layout fitter and §8's rhythm
+    modifier — because every stage can reject a draw and because `max_notes`
+    bounds the notes that get *printed*. A family raises `ValueError` naming what
+    could not be satisfied when a specification runs off the neck or asks a
+    traversal for a string count it does not have, and the fitter raises when no
+    legal lever tiles the note count into whole measures (§4.6); both are the
+    gate, and the message is kept because §13 makes the eventual failure report
+    the whole value of the loud error. `max_notes` then counts the fitter's final
+    note count, after any lever it applied, which is exactly what gets engraved.
 
     Only `ValueError` is caught. Anything else from a family is a bug in the
     family (§13) and resampling around it would hide it.
     """
     try:
-        generated, _hints = REGISTRY[family].generate(config.instrument, params)
-        score = rhythm.apply(generated, params)
+        score, _plan = pipeline.realize(config.instrument, family, params)
     except ValueError as error:
         return str(error)
 
