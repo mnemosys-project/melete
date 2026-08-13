@@ -1,0 +1,5 @@
+\title "C major pentatonic, positional, up and down groups of 4"
+\tuning(C3 G2 D2 A1 E1 B0)
+\instrument(34)
+.
+\ts 3 4 \ks c \clef bass \tempo 80 \ro 1.6{ac}.16{d} 3.6.32 5.6.16{d} 3.5{ac}.32 3.6.16{d} 5.6.32 3.5{ac}.16{d} 5.5.32 5.6.16{d} 3.5{ac}.32 5.5.16{d} 3.4.32 | \rc 2 5.6{ac}.16{d} 3.5.32 5.5.16{d} 3.4{ac}.32 5.5.16{d} 3.5.32 5.6{ac}.16{d} 3.6.32 3.5.16{d} 5.6{ac}.32 3.6.16{d} 1.6.32

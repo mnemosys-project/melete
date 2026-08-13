@@ -1,0 +1,5 @@
+\title "E minor 7th, first inversion, across strings, ascending broken"
+\tuning(C3 G2 D2 A1 E1 B0)
+\instrument(34)
+.
+\ts 4 4 \ks g \clef bass \tempo 80 \ro 3.5.8{d} 0.3.16 2.4.8{d} 2.3.16 0.3.8{d} 0.2.16 2.3.8{d} 4.2.16 | \rc 2 0.2.8{d} 7.2.16 4.2.8{d} 9.2.16 7.2.8{d} 12.2.16 7.2.8{d} 12.2.16
