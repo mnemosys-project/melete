@@ -93,8 +93,9 @@ def _candidates(beats: int, seam_beat: int | None) -> list[tuple[int, int]]:
     return sorted(pairs, key=rank)
 
 
-#: Effect of each lever on the note count (apex levers move by a whole cell; see
-#: fit()). Sorted by |delta| so the smallest edit is tried first.
+#: Effect of each lever on the note count. Every lever moves the count by a whole
+#: cell — one beat — so the sign here is all that matters and ``fit`` scales it by
+#: ``cell`` (see fit()). Sorted by |delta| so the smallest edit is tried first.
 _LEVER_DELTA: dict[Lever, int] = {
     Lever.DROP_ONE: -1,
     Lever.ADD_ONE: +1,
@@ -119,18 +120,23 @@ def fit(note_count: int, hints: LayoutHints) -> LayoutPlan:
     """Whole-bar layout, engaging one legal lever only when needed (spec §4.5-4.6).
 
     A clean, even, lever-free fit is ideal and returned at once. Otherwise each
-    legal lever is tried (an apex lever moves the count by a whole cell; add/drop
-    by one note), and the best result wins by ``_quality`` — preferring an even
-    bar count, then the fewest levers. Falls back to an odd-but-sane lever-free
-    count when no lever improves on it; raises only when nothing tiles at all.
+    legal lever is tried — every lever moves the count by exactly one whole cell,
+    which is one beat — and the best result wins by ``_quality``, preferring an
+    even bar count, then the fewest levers. Falls back to an odd-but-sane
+    lever-free count when no lever improves on it; raises only when nothing tiles.
+
+    Because a lever shifts the beat count ``B`` by exactly ±1, and ``B ± 1`` is
+    always even whenever ``B`` is odd, a single lever always reaches an even (thus
+    sane, ``b = 2``) meter whenever any lever is declared. Every family declares a
+    lever, so every family always tiles: the only reason to raise is a leverless
+    ``LayoutHints`` whose count already has no sane meter.
     """
     best = _try(note_count, hints, ())
     if best is not None and best.bars % 2 == 0:
         return best
 
     for lever in sorted(hints.levers, key=lambda lv: abs(_LEVER_DELTA[lv])):
-        step = hints.cell if lever in (Lever.APEX_REPEAT, Lever.APEX_OMIT) else 1
-        delta = (1 if _LEVER_DELTA[lever] > 0 else -1) * step
+        delta = (1 if _LEVER_DELTA[lever] > 0 else -1) * hints.cell
         candidate = _try(note_count + delta, hints, (lever,))
         if candidate is None:
             continue
@@ -169,6 +175,12 @@ def _fit_fixed(note_count: int, hints: LayoutHints, applied: tuple[Lever, ...]) 
         raise ValueError(msg)
 
     beats = note_count // cell
+    if beats < 1:
+        msg = (
+            f"no whole-bar fit: {note_count} notes is {beats} beats, an empty "
+            f"exercise (a note-count lever must add a cell rather than drop the last)"
+        )
+        raise ValueError(msg)
     seam_beat = None if hints.seam is None else hints.seam // cell
     ranked = _candidates(beats, seam_beat)
     if not ranked:
@@ -196,10 +208,12 @@ def _fit_fixed(note_count: int, hints: LayoutHints, applied: tuple[Lever, ...]) 
 def realize_lever(voice: Voice, lever: Lever, seam: int | None, cell: int = 1) -> Voice:
     """Apply ``lever`` to ``voice``, returning a new list (spec §4.6).
 
-    Apex levers act on a whole *cell* — the ``cell`` notes ending at ``seam`` — so
-    repeating the apex of a 4-note chromatic group adds four notes, while a
-    single-note scale apex (``cell=1``) adds one. ``ADD_ONE``/``DROP_ONE`` always
-    act on a single trailing note.
+    Every lever acts on a whole *cell* — the run of notes that forms one beat — so
+    the note count always moves by an exact beat. The apex levers act on the cell
+    ending at ``seam``: repeating the apex of a 4-note chromatic group adds four
+    notes, while a single-note scale apex (``cell=1``) adds one. ``ADD_ONE`` and
+    ``DROP_ONE`` act on the *trailing* cell — the last ``cell`` notes — so for
+    ``cell=1`` they still repeat or drop one trailing note, unchanged.
     """
     if lever is Lever.APEX_REPEAT:
         if seam is None:
@@ -213,8 +227,8 @@ def realize_lever(voice: Voice, lever: Lever, seam: int | None, cell: int = 1) -
             raise ValueError(msg)
         return [*voice[: seam - cell + 1], *voice[seam + 1 :]]
     if lever is Lever.ADD_ONE:
-        return [*voice, voice[-1]]
+        return [*voice, *voice[-cell:]]
     if lever is Lever.DROP_ONE:
-        return list(voice[:-1])
+        return list(voice[:-cell])
     msg = f"unknown lever {lever!r}"
     raise ValueError(msg)

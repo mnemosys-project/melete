@@ -109,8 +109,8 @@ from typing import TYPE_CHECKING
 from melete import theory, vocabulary
 from melete.families._shared import (
     Parameters,
-    apply_direction,
     boxed,
+    directed_by_cell,
     layout_hints,
     octaves,
     realizable,
@@ -331,7 +331,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     places = _places(profile, pitches, strings, traversal)
     window = _PATTERN_WINDOWS[pattern]
     ascending = windowed(window, len(pitches))
-    order = apply_direction(ascending, direction)
+    order = directed_by_cell(ascending, direction, len(window))
 
     voice: Voice = [
         Note(
@@ -364,10 +364,11 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
 def _hints(window: tuple[int, ...], ascending: Sequence[int], direction: str) -> LayoutHints:
     """The §4.2 layout hints for a realized cycle.
 
-    The cell is one turn of the `pattern` window. `up_down` turns around at the
-    top of the ascending pass — its last note, played once — so the seam is that
-    note's index and the apex levers become legal; a `up` or `down` exercise has
-    no turnaround, so it offers only the trailing add/drop.
+    The cell is one turn of the `pattern` window. `up_down` (via
+    `directed_by_cell`) turns around at a cell boundary — the apex cell of the
+    ascending pass, played once — so the seam is that cell's last note and the
+    apex levers become legal; a `up` or `down` exercise has no turnaround, so it
+    offers only the trailing add/drop.
     """
     seam = len(ascending) - 1 if direction == "up_down" else None
     levers: tuple[Lever, ...] = (Lever.ADD_ONE, Lever.DROP_ONE)

@@ -306,6 +306,41 @@ def apply_direction[T](items: Sequence[T], direction: str) -> list[T]:
     return there_and_back(items)
 
 
+def directed_by_cell[T](order: Sequence[T], direction: str, cell: int) -> list[T]:
+    """§7's `direction`, with the `up_down` turnaround falling on a *cell* boundary.
+
+    `apply_direction`'s `up_down` turns around at the note level: `there_and_back`
+    over a flat order of `cell`-note groups replays every note but the apex,
+    leaving `2L - 1` notes ≡ `cell - 1 (mod cell)`. For `cell > 1` that is a
+    half-filled beat no meter divides — the §132 defect that kept a `thirds`
+    up-and-down from ever tiling. Turning around a whole cell early instead — the
+    ascent, then the retrograde of the ascent *minus its apex cell* — keeps the
+    count a whole number of cells (`2L - cell`, i.e. `2 x 13 - 1 = 25` cells for
+    26-note thirds) so the fitter always has whole beats to lay out.
+
+    `up` and `down` are unchanged from `apply_direction`, deliberately: they never
+    turn around, so a one-way pass is already `L` notes — whole cells — and needs
+    no adjustment. `down` therefore stays the *note-level* retrograde that
+    `scales` and `arpeggios` define a descending figure to be (descending thirds
+    are `15-13, 14-12, …`, each pair high note first), not a cell-order reversal —
+    that reversal is `intervals`' own reading of `direction`, and the two families
+    differ on purpose (see `intervals`).
+
+    The apex cell is played once in the base cycle; the fitter's `APEX_REPEAT` /
+    `APEX_OMIT` levers repeat or omit that one cell to reach an even bar count. For
+    `cell == 1` this reduces exactly to `apply_direction`. `order` must be a whole
+    number of cells long — the `windowed` callers always are, a window slid one
+    step at a time emitting its full width every step.
+    """
+    if direction == "up":
+        return list(order)
+    if direction == "down":
+        return list(reversed(order))
+    # `up_down`: ascend, then retrograde the ascent without its trailing apex
+    # cell, so the apex plays once and the note count stays a whole cell count.
+    return [*order, *reversed(order[: len(order) - cell])]
+
+
 def layout_hints(cell: int, seam: int | None, levers: tuple[Lever, ...]) -> LayoutHints:
     """Assemble a family's LayoutHints (spec §4.2).
 

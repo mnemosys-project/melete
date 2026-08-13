@@ -18,7 +18,13 @@ from dataclasses import replace
 
 import pytest
 
-from melete.families._shared import Parameters, apply_direction, boxed, there_and_back
+from melete.families._shared import (
+    Parameters,
+    apply_direction,
+    boxed,
+    directed_by_cell,
+    there_and_back,
+)
 from melete.instrument import PROFILES, hand_span
 
 BASS6 = PROFILES["bass6"]
@@ -216,3 +222,44 @@ def test_no_direction_adds_or_drops_content(direction: str) -> None:
 def test_a_single_element_is_one_note_in_every_direction() -> None:
     for direction in ("up", "down", "up_down"):
         assert apply_direction([7], direction) == [7]
+
+
+# --------------------------------------------------------------------------
+# `directed_by_cell`: `direction` at the cell boundary, whole cells throughout
+# --------------------------------------------------------------------------
+
+#: Three two-note cells: (0, 2), (1, 3), (2, 4), as a `windowed` thirds run.
+_THIRDS = [0, 2, 1, 3, 2, 4]
+
+
+def test_directed_by_cell_up_keeps_the_order() -> None:
+    assert directed_by_cell(_THIRDS, "up", 2) == [0, 2, 1, 3, 2, 4]
+
+
+def test_directed_by_cell_down_is_the_note_level_retrograde() -> None:
+    # `down` never turns around, so it stays the full note-level retrograde a
+    # descending figure is (scales/arpeggios), not a cell-order reversal: the
+    # descending third is the top pair played high note first.
+    assert directed_by_cell(_THIRDS, "down", 2) == [4, 2, 3, 1, 2, 0]
+
+
+def test_directed_by_cell_up_down_turns_around_a_whole_cell_early() -> None:
+    # Ascend, then retrograde the ascent minus its apex cell (2, 4): the apex is
+    # played once and the count stays a whole number of cells (5 cells, 10 notes,
+    # not the untileable 11 a note-level turnaround would leave) — the §132 fix.
+    assert directed_by_cell(_THIRDS, "up_down", 2) == [0, 2, 1, 3, 2, 4, 3, 1, 2, 0]
+
+
+@pytest.mark.parametrize("direction", ["up", "down", "up_down"])
+def test_directed_by_cell_is_apply_direction_when_the_cell_is_one_note(direction: str) -> None:
+    # For a single-note cell the cell and the note are the same thing, so the
+    # cell-level turnaround must reduce exactly to the note-level one.
+    items = [10, 11, 12, 13]
+    assert directed_by_cell(items, direction, 1) == apply_direction(items, direction)
+
+
+@pytest.mark.parametrize("direction", ["up", "down", "up_down"])
+def test_directed_by_cell_always_yields_whole_cells(direction: str) -> None:
+    # The property the fix rests on: however the direction turns the cells, the
+    # result is always a whole number of cells, so the fitter has integral beats.
+    assert len(directed_by_cell(_THIRDS, direction, 2)) % 2 == 0
