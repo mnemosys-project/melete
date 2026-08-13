@@ -69,9 +69,13 @@ src/melete/
                         a family; decides nothing about exercises.
     scales.py           }
     arpeggios.py        }  One pure function per family:
-    intervals.py        }  parameters -> Score
+    intervals.py        }  parameters -> (Score, LayoutHints)
     chromatic.py        }
-  rhythm.py             Cross-cutting modifier: Score -> Score
+  layout.py             The layout fitter: LayoutHints + note count -> a
+                        whole-bar (subdivision, time signature, bars) plan
+  rhythm.py             Cross-cutting modifier: restamps a Voice's durations,
+                        tuplets and accents at the fitter's subdivision
+  pipeline.py           realize(): family -> fitter -> restamp, one laid-out Score
   selection.py          Coverage-aware sampling; ExerciseSpec, WeightInputs
   alphatab/
     emit.py       [AT]  Score -> alphaTex source text. Knows the syntax.
@@ -82,13 +86,18 @@ src/melete/
 ```
 
 The pipeline runs left to right through those modules: config selects an
-exercise, a family generates a `Score`, the rhythm modifier rewrites it, the
-emitter turns it into alphaTex source text, and the renderer produces the
-Guitar Pro `.gp`. Only the last two stages name a renderer.
+exercise; a family generates a `Score` and the `LayoutHints` that travel with
+it; the layout fitter derives a subdivision, time signature and bar count under
+which the notes tile into whole, complete measures, wrapped in repeat barlines;
+the rhythm modifier restamps the voice's durations, tuplets and accents at that
+subdivision; `pipeline.realize` is the one place those three renderer-agnostic
+stages are wired together into a single laid-out `Score`; the emitter turns it
+into alphaTex source text; and the renderer produces the Guitar Pro `.gp`. Only
+the last two stages name a renderer.
 
 ## What the design is made of
 
-Five pieces do the work. All five are renderer-agnostic; the spec section
+Six pieces do the work. All six are renderer-agnostic; the spec section
 against each one is authoritative.
 
 **The spelling model (§10a).** A note's letter and accidental are decided from
@@ -101,10 +110,23 @@ renderer.
 **The Score IR (§6).** `Note`, `Tuplet`, `Voice`, `Score` — pure data, one
 level of tuplet nesting, and durations stored as **written** values so a
 triplet eighth is `1/8` inside a `3/2` tuplet rather than an unwritable `1/12`.
+A `Score` also carries a `repeat` flag (§5): a renderer-agnostic intent that
+the exercise plays twice, which the emitter draws as repeat barlines.
 
 **The four families (§7).** Scales, arpeggios, intervals and chromatic
-permutations, each a pure function from parameters to a `Score`, registered in
-`families.REGISTRY`.
+permutations, each a pure function from parameters to a `Score` and the
+`LayoutHints` the fitter needs, registered in `families.REGISTRY`.
+
+**The layout fitter (§4, §5).** A family emits a `Score` plus `LayoutHints` —
+a cell size, a seam, and the note-count levers that are musically legal here —
+and the fitter (`layout.py`) derives the (subdivision, time signature, bar
+count) under which the note count tiles into whole, complete measures, never a
+partial bar, wrapped in repeat barlines. It ranks meters by a priority ladder —
+a whitelisted beats-per-bar, an even bar count, then seam alignment — and
+engages a single cell-granular lever (repeat or omit the apex, add or drop a
+whole cell) only when a clean fit needs one, recording a legibility trace for
+why the chosen meter won. `pipeline.realize` wires it between the family and the
+rhythm modifier.
 
 **Coverage-aware selection (§9).** The selector weights candidate exercises by
 what has been practised recently, gates them for validity, and is deterministic
