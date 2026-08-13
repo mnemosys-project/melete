@@ -126,6 +126,30 @@ TIE_FRET = "-"
 REPEAT_OPEN = "\\ro"
 REPEAT_CLOSE = "\\rc 2"
 
+#: The track-property directive that puts each exercise on its own system in a
+#: book (melete#138). alphaTab lays out `defaultSystemsLayout` bars per system —
+#: 3 by default — so consecutive short exercises share a system and their
+#: `\section` titles overprint. Setting `systemsLayout` to the per-exercise bar
+#: counts makes each exercise fill exactly one system.
+#:
+#: For a **single-track** score alphaTab reads the layout off the *track*
+#: (`ModelUtils.getSystemLayout` uses `displayedTracks[0].systemsLayout` when
+#: `tracks.length === 1`); the score-level `\systemslayout` metadata is *not*
+#: honored there, so the value must land on the track. The `\track "…" { … }`
+#: property-block form carries a track-level `systemslayout` property, and an
+#: empty name leaves the (already unnamed) single track's name untouched. Placed
+#: once, right after the header's terminating `.` and ahead of the bar stream, it
+#: configures that one track without adding a second.
+#:
+#: Confirmed empirically against `@coderline/alphatab` 1.8.4: rendering a book
+#: with this directive and reading back the exported `Content/score.gpif` shows
+#: the master track's `<SystemsLayout>` equal to the emitted counts (e.g.
+#: `<SystemsLayout>2 2 2 2 2</SystemsLayout>` for five 2-bar exercises), while
+#: every other node — tuning, instrument, bars, beats — is byte-identical to the
+#: same book without it. `emit_score` needs no such directive: a single exercise
+#: is one `\section`, so nothing can overprint.
+SYSTEMS_LAYOUT_PROPERTY = "systemslayout"
+
 #: The seven letters in ascending order, and the pitch class each names
 #: unaltered. A key signature adds sharps in the order F C G D A E B and flats in
 #: the order B E A D G C F; `_signature` walks these to name each letter's
@@ -516,6 +540,19 @@ def _exercise_bars(score: Score, section: str | None) -> list[str]:
     return bodies
 
 
+def _systems_layout_line(bar_counts: Sequence[int]) -> str:
+    r"""The `\track` directive giving each exercise its own system (melete#138).
+
+    One `systemslayout` property per exercise, each its bar count, so alphaTab
+    breaks a new system at every exercise boundary instead of running short
+    exercises together three-bars-to-a-system. Emitted on a single, unnamed track
+    so it configures the book's one track rather than adding a second. See
+    `SYSTEMS_LAYOUT_PROPERTY` for why this must be track-level, not score-level.
+    """
+    counts = " ".join(str(count) for count in bar_counts)
+    return f'\\track "" {{ {SYSTEMS_LAYOUT_PROPERTY} {counts} }}'
+
+
 def _header(title: str, subtitle: str | None, score: Score) -> list[str]:
     r"""The alphaTex metadata block, terminated by the lone `.`.
 
@@ -556,6 +593,11 @@ def emit_book(scores: Sequence[Score], cover: Cover) -> str:
     each exercise is named `N. <title>` by its section marker and sets its own
     meter, key, clef and tempo (spec §12). Bars are joined by `|` throughout,
     across exercise boundaries as well — alphaTab starts a new bar only at a `|`.
+
+    A `\\track` systems-layout directive precedes the bars, one entry per exercise
+    holding that exercise's bar count, so alphaTab gives each exercise its own
+    system rather than running short ones together and overprinting their
+    `\\section` titles (melete#138; see `SYSTEMS_LAYOUT_PROPERTY`).
     """
     if not scores:
         msg = "a book needs at least one exercise; a cover with no exercises is not a session"
@@ -565,8 +607,12 @@ def emit_book(scores: Sequence[Score], cover: Cover) -> str:
     lines = _header(SESSION_TITLE, subtitle, scores[0])
 
     bars: list[str] = []
+    layout: list[int] = []
     for number, score in enumerate(scores, start=1):
-        bars += _exercise_bars(score, f"{number}. {score.title}")
+        exercise_bars = _exercise_bars(score, f"{number}. {score.title}")
+        layout.append(len(exercise_bars))
+        bars += exercise_bars
 
+    lines.append(_systems_layout_line(layout))
     lines.append(f" {BAR_SEPARATOR} ".join(bars))
     return "\n".join(lines) + "\n"
