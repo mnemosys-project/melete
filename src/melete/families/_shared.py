@@ -18,6 +18,11 @@ readings that need more than a type: the subset of a shared axis one family can
 lay out, §7's enumerated octave counts, and a string set validated against the
 active profile.
 
+**Assembling `LayoutHints`.** Every family returns §4.2's hints alongside its
+`Score`, and the record is one shape for all four. `layout_hints` names it once
+so no family restates the field order; the values it carries — the natural cell,
+the turnaround seam, the legal levers — stay the family's own to decide.
+
 **Ordering by `direction`.** §7's `direction` axis is shared, so its realization
 is too. `apply_direction` is generic over the element type on purpose: `scales`
 orders degree indices and `chromatic` orders string indices, and a helper that
@@ -54,11 +59,13 @@ from typing import TYPE_CHECKING
 
 from melete import vocabulary
 from melete.instrument import hand_span, positions
+from melete.layout import LayoutHints
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from melete.instrument import InstrumentProfile
+    from melete.layout import Lever
 
 #: §7's `range_octaves` column, which the spec enumerates rather than leaves
 #: open. Shared because the column is one column, not one per family.
@@ -297,3 +304,15 @@ def apply_direction[T](items: Sequence[T], direction: str) -> list[T]:
     if direction == "down":
         return list(reversed(items))
     return there_and_back(items)
+
+
+def layout_hints(cell: int, seam: int | None, levers: tuple[Lever, ...]) -> LayoutHints:
+    """Assemble a family's LayoutHints (spec §4.2).
+
+    Every family emits the same record — a natural group size, an optional
+    turnaround seam and the note-count levers legal here — so its construction is
+    written once, the same way `windowed` and `apply_direction` are. The family
+    still owns the three values, because what a cell is and where a seam falls is
+    a musical judgement; this only names the shape they travel in.
+    """
+    return LayoutHints(cell=cell, seam=seam, levers=levers)

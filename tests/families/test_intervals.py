@@ -38,12 +38,28 @@ from melete.families.intervals import (
     DEFAULT_TEMPO_RANGE,
     INSTRUCTION,
     INTERVAL_NAMES,
-    generate,
 )
+from melete.families.intervals import generate as _generate
 from melete.instrument import PROFILES
+from melete.layout import Lever
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from melete.instrument import InstrumentProfile
     from melete.score import Score
+
+
+def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
+    """Unpack the family's `(Score, LayoutHints)`; these tests assert on the Score.
+
+    §4.2 widened every family to return its layout hints alongside the Score.
+    The hint contract is covered in `test_registry`; here the Score is the
+    subject, so a single wrapper unpacks it rather than every call site.
+    """
+    score, _hints = _generate(profile, params)
+    return score
+
 
 BASS6 = PROFILES["bass6"]
 
@@ -548,3 +564,25 @@ def test_invariant_holds_across_the_profiles(profile_name: str) -> None:
     profile = PROFILES[profile_name]
     spec = params(string_set=tuple(range(min(4, len(profile.tuning)))))
     assert_central_invariant(generate(profile, spec))
+
+
+def test_layout_hints_report_the_pair_as_the_cell() -> None:
+    # §4.2's cell here is the pair: two notes sounded together to a beat.
+    _score, hints = _generate(BASS6, PARAMS)
+    assert hints.cell == 2
+
+
+def test_a_one_directional_exercise_has_no_seam_and_no_apex_levers() -> None:
+    # `up` (and `down`) never turn around, so only the trailing add/drop apply.
+    _score, hints = _generate(BASS6, PARAMS)
+    assert hints.seam is None
+    assert set(hints.levers) == {Lever.ADD_ONE, Lever.DROP_ONE}
+
+
+def test_an_up_down_exercise_names_its_apex_seam_and_offers_apex_levers() -> None:
+    # The pairs turn around on the top pair of the ascending pass, played once,
+    # so the seam is that pair's last note — the end of the `len(pairs)` pairs
+    # the pass sounds — and the apex levers become legal (§4.6).
+    _score, hints = _generate(BASS6, params(direction="up_down"))
+    assert hints.seam == 2 * len(A_IONIAN) - 1
+    assert {Lever.APEX_REPEAT, Lever.APEX_OMIT} <= set(hints.levers)

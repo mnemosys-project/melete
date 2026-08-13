@@ -25,11 +25,28 @@ import pytest
 from conftest import assert_central_invariant, assert_spelling_sounds_correctly, notes_of
 
 from melete import theory, vocabulary
-from melete.families.arpeggios import DEFAULT_TEMPO_RANGE, INSTRUCTION, INVERSIONS, generate
+from melete.families.arpeggios import DEFAULT_TEMPO_RANGE, INSTRUCTION, INVERSIONS
+from melete.families.arpeggios import generate as _generate
 from melete.instrument import PROFILES
+from melete.layout import Lever
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from melete.instrument import InstrumentProfile
     from melete.score import Score
+
+
+def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
+    """Unpack the family's `(Score, LayoutHints)`; these tests assert on the Score.
+
+    §4.2 widened every family to return its layout hints alongside the Score.
+    The hint contract is covered in `test_registry`; here the Score is the
+    subject, so a single wrapper unpacks it rather than every call site.
+    """
+    score, _hints = _generate(profile, params)
+    return score
+
 
 BASS6 = PROFILES["bass6"]
 
@@ -552,3 +569,31 @@ def test_invariant_holds_across_the_profiles(profile_name: str) -> None:
     # 0-3 of whatever the profile provides.
     spec = params(string_set=tuple(range(min(4, len(profile.tuning)))))
     assert_central_invariant(generate(profile, spec))
+
+
+def test_layout_hints_report_the_pattern_window_as_the_cell() -> None:
+    # §4.2's cell is one turn of the `pattern` window. `straight` is `(0,)`, so
+    # its cell is a single note; `numeric_1353` is a four-note window.
+    _score, straight = _generate(BASS6, PARAMS)
+    assert straight.cell == 1
+    _score, numeric = _generate(BASS6, params(pattern="numeric_1353"))
+    assert numeric.cell == 4
+
+
+def test_a_one_directional_exercise_has_no_seam_and_no_apex_levers() -> None:
+    # `up` (and `down`) never turn around, so there is no apex for the fitter to
+    # act on: only the trailing add/drop are legal.
+    _score, hints = _generate(BASS6, PARAMS)
+    assert hints.seam is None
+    assert set(hints.levers) == {Lever.ADD_ONE, Lever.DROP_ONE}
+
+
+def test_an_up_down_exercise_names_its_apex_seam_and_offers_apex_levers() -> None:
+    # The apex is the last note of the ascending pass, played once; naming its
+    # index is what lets the fitter's apex levers act (§4.6).
+    score, hints = _generate(BASS6, params(direction="up_down"))
+    assert hints.seam is not None
+    # The seam falls on the turnaround note, the top of the ascending half.
+    pitches = pitches_of(score)
+    assert pitches[hints.seam] == max(pitches)
+    assert {Lever.APEX_REPEAT, Lever.APEX_OMIT} <= set(hints.levers)

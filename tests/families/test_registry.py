@@ -3,7 +3,8 @@
 `REGISTRY` is the one place `config`, `selection` and `cli` learn which
 families exist. The tests that matter are therefore about agreement: every key
 is an identifier `vocabulary` knows, and every value really is a family
-function that returns a Score. With task B8 all four of §7's families are
+function that returns a `(Score, LayoutHints)` pair (§4.2). With task B8 all four
+of §7's families are
 registered, so the vocabulary agreement is an equality rather than a subset: a
 family enumerated for configuration but missing from the registry is one
 `selection` could draw and nothing could realize.
@@ -26,6 +27,7 @@ from melete.families.chromatic import generate as chromatic_generate
 from melete.families.intervals import generate as intervals_generate
 from melete.families.scales import generate as scales_generate
 from melete.instrument import PROFILES
+from melete.layout import LayoutHints
 from melete.score import Score
 
 SPEC: dict[str, object] = {
@@ -118,15 +120,15 @@ def test_every_registered_family_is_in_the_vocabulary() -> None:
 
 
 def test_a_family_can_be_generated_through_the_registry() -> None:
-    score = REGISTRY["chromatic"].generate(PROFILES["bass5"], SPEC)
+    score, _hints = REGISTRY["chromatic"].generate(PROFILES["bass5"], SPEC)
     assert isinstance(score, Score)
     assert_central_invariant(score)
 
 
 def test_every_family_answers_the_same_call() -> None:
-    # The contract is `generate(profile, params) -> Score` and nothing else, so
-    # a caller dispatching through the registry never learns which family it
-    # reached.
+    # The contract is `generate(profile, params) -> (Score, LayoutHints)` and
+    # nothing else, so a caller dispatching through the registry never learns
+    # which family it reached.
     families = (
         ("chromatic", SPEC),
         ("scales", SCALES_SPEC),
@@ -134,13 +136,34 @@ def test_every_family_answers_the_same_call() -> None:
         ("intervals", INTERVALS_SPEC),
     )
     for identifier, spec in families:
-        score = REGISTRY[identifier].generate(PROFILES["bass6"], spec)
+        score, _hints = REGISTRY[identifier].generate(PROFILES["bass6"], spec)
         assert isinstance(score, Score)
         assert_central_invariant(score)
         assert_spelling_sounds_correctly(score)
         # The tempo the family declares is the tempo it engraves with, so a
         # caller reading the registry sees what the sheet will say.
         assert score.tempo_range == REGISTRY[identifier].default_tempo_range
+
+
+def test_every_family_returns_a_score_and_layout_hints() -> None:
+    # §4.2 widened the family contract: `generate` returns the Score *and* the
+    # LayoutHints the fitter needs, because the natural cell and the turnaround
+    # seam are the family's to know and are not recoverable from the voice after
+    # the fact. Every family in the registry must satisfy the widened shape, and
+    # the one invariant that holds for all four — before #116/#117 settle the
+    # precise cycle semantics — is that the cell is a real group size (g >= 1).
+    specifications = (
+        ("chromatic", SPEC),
+        ("scales", SCALES_SPEC),
+        ("arpeggios", ARPEGGIOS_SPEC),
+        ("intervals", INTERVALS_SPEC),
+    )
+    for identifier, spec in specifications:
+        result = REGISTRY[identifier].generate(PROFILES["bass6"], spec)
+        score, hints = result
+        assert isinstance(score, Score), identifier
+        assert isinstance(hints, LayoutHints), identifier
+        assert hints.cell >= 1, identifier
 
 
 def test_a_specification_names_every_axis_the_registry_advertises() -> None:

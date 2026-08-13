@@ -21,11 +21,27 @@ from typing import TYPE_CHECKING
 import pytest
 from conftest import assert_central_invariant, assert_spelling_sounds_correctly, notes_of
 
-from melete.families.chromatic import DEFAULT_TEMPO_RANGE, INSTRUCTION, generate
+from melete.families.chromatic import DEFAULT_TEMPO_RANGE, INSTRUCTION
+from melete.families.chromatic import generate as _generate
 from melete.instrument import PROFILES
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from melete.instrument import InstrumentProfile
     from melete.score import Score
+
+
+def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
+    """Unpack the family's `(Score, LayoutHints)`; these tests assert on the Score.
+
+    §4.2 widened every family to return its layout hints alongside the Score.
+    The hint contract is covered in `test_registry`; here the Score is the
+    subject, so a single wrapper unpacks it rather than every call site.
+    """
+    score, _hints = _generate(profile, params)
+    return score
+
 
 PARAMS: dict[str, object] = {
     "permutation": (1, 2, 3, 4),

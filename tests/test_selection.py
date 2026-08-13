@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from melete.config import AxisValue, Config
     from melete.families import Params
     from melete.instrument import InstrumentProfile
+    from melete.layout import LayoutHints
     from melete.score import Note, Score
 
 HORIZON = 14
@@ -163,7 +164,7 @@ def specs_of(picks: Sequence[tuple[ExerciseSpec, WeightInputs]]) -> list[Exercis
 
 def printed_voice(config: Config, spec: ExerciseSpec) -> list[Note]:
     """Every note the exercise engraves, realized as §4's pipeline does."""
-    score = REGISTRY[spec.family].generate(config.instrument, spec.params)
+    score, _hints = REGISTRY[spec.family].generate(config.instrument, spec.params)
     notes: list[Note] = []
     for item in rhythm.apply(score, spec.params).voice:
         notes.extend(item.notes if isinstance(item, Tuplet) else [item])
@@ -634,7 +635,7 @@ def test_a_configuration_with_no_pool_at_all_cannot_weight_the_families() -> Non
 def test_a_bug_inside_a_family_is_never_resampled_around(monkeypatch: pytest.MonkeyPatch) -> None:
     """§13: a family raising anything but a ValueError is a bug, not a draw."""
 
-    def broken(_profile: InstrumentProfile, _params: Params) -> Score:
+    def broken(_profile: InstrumentProfile, _params: Params) -> tuple[Score, LayoutHints]:
         msg = "not a validity failure"
         raise TypeError(msg)
 

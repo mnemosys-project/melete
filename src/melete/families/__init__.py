@@ -1,6 +1,6 @@
 """The exercise families (spec §7): one pure function per family.
 
-A family is `generate(profile, params) -> Score` and nothing else. It has no
+A family is `generate(profile, params) -> (Score, LayoutHints)` and nothing else. It has no
 I/O, no randomness and no clock: the selector (§9) chooses the parameters and
 the family realizes them, which is what makes a sheet reproducible from its
 session log. Nothing here imports `selection` or `config`, and no family
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from melete.instrument import InstrumentProfile
+    from melete.layout import LayoutHints
     from melete.score import Score
 
 #: One exercise specification: §7 axis identifiers and range values, plus
@@ -53,8 +54,10 @@ if TYPE_CHECKING:
 #: the active profile.
 type Params = Mapping[str, object]
 
-#: The family contract. Every `Family.generate` has this shape.
-type Generate = Callable[[InstrumentProfile, Params], Score]
+#: The family contract. Every `Family.generate` has this shape: a family realizes
+#: a `Score` and, alongside it, the §4.2 `LayoutHints` the fitter needs — the two
+#: are one return because neither is derivable from the other after the fact.
+type Generate = Callable[[InstrumentProfile, Params], tuple[Score, LayoutHints]]
 
 
 @dataclass(frozen=True)

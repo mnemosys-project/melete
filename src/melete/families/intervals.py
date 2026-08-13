@@ -98,13 +98,21 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory, vocabulary
-from melete.families._shared import Parameters, apply_direction, realizable, string_set
+from melete.families._shared import (
+    Parameters,
+    apply_direction,
+    layout_hints,
+    realizable,
+    string_set,
+)
+from melete.layout import Lever
 from melete.score import Note, Score
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from melete.instrument import InstrumentProfile
+    from melete.layout import LayoutHints
     from melete.score import Voice
 
 #: This family's identifier in `vocabulary.AXES["family"]`, and the prefix on
@@ -160,6 +168,11 @@ _DESCENDING_PAIRS = "descending_pairs"
 _PATTERNS = (_ASCENDING_PAIRS, _DESCENDING_PAIRS, "alternating")
 
 _SEMITONES_PER_OCTAVE = len(theory.PITCH_CLASSES)
+
+#: The natural cell (§4.3): each pair is the two notes sounded together, so one
+#: beat's worth of this exercise is two notes. Named because the count and the
+#: two-note construction below must not be able to disagree.
+_NOTES_PER_PAIR = 2
 
 #: §7's `interval` column, 2nd through 10th, and the prose §12's cover page
 #: prints for each. One table, so the accepted set and the display names cannot
@@ -300,14 +313,19 @@ def _title(root: int, named: str, interval: int, skip: str, pattern: str, direct
     )
 
 
-def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
-    """Realize one interval or string-skipping exercise on `profile`.
+def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[Score, LayoutHints]:
+    """Realize one interval or string-skipping exercise on `profile`, with hints.
 
     Pure: the same profile and parameters always produce the same Score. Extra
     keys in `params` are carried into the Score untouched rather than rejected
     — §8's rhythm axes travel in the same dictionary — but every axis this
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
+
+    The §4.2 hints report the pair as the natural cell — two notes to a beat —
+    and, for an `up_down` exercise, the note index of the apex the pairs turn
+    around at, so the fitter's apex levers know where to act. A one-directional
+    exercise has no such seam.
     """
     read = Parameters(_FAMILY, AXES, params)
     interval = _interval(read)
@@ -361,7 +379,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         )
         voice.extend((upper, lower) if _plays_downward(pattern, position) else (lower, upper))
 
-    return Score(
+    score = Score(
         title=_title(root, named, interval, skip, pattern, direction),
         instruction=INSTRUCTION,
         instrument=profile,
@@ -371,3 +389,19 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
         key=key,
         params=dict(params),
     )
+    return score, _hints(len(pairs), direction)
+
+
+def _hints(pair_count: int, direction: str) -> LayoutHints:
+    """The §4.2 layout hints for a realized cycle.
+
+    The cell is the pair, two notes to a beat. `up_down` turns around on the top
+    pair of the ascending pass — played once — so the seam is that pair's last
+    note, at the end of the `pair_count` pairs the pass sounds; `up` and `down`
+    have no turnaround, so they offer only the trailing add/drop.
+    """
+    seam = _NOTES_PER_PAIR * pair_count - 1 if direction == "up_down" else None
+    levers: tuple[Lever, ...] = (Lever.ADD_ONE, Lever.DROP_ONE)
+    if seam is not None:
+        levers = (*levers, Lever.APEX_REPEAT, Lever.APEX_OMIT)
+    return layout_hints(cell=_NOTES_PER_PAIR, seam=seam, levers=levers)
