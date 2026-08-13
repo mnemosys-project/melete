@@ -14,11 +14,12 @@ every chromatic exercise, so each cell width is pinned here.
 from __future__ import annotations
 
 from fractions import Fraction
+from typing import cast
 
 import pytest
 
-from melete.layout import Lever, LayoutHints, realize_lever
-from melete.score import Note
+from melete.layout import LayoutHints, Lever, realize_lever
+from melete.score import Note, Voice
 
 
 def _n(pitch: int) -> Note:
@@ -38,9 +39,18 @@ def _n(pitch: int) -> Note:
     )
 
 
-def _pitches(voice: list[Note]) -> list[int]:
-    """The pitch sequence of `voice`, the only thing the lever tests read."""
-    return [note.pitch for note in voice]
+def _pitches(voice: Voice) -> list[int]:
+    """The pitch sequence of `voice`, the only thing the lever tests read.
+
+    The `isinstance` narrowing is the assertion that these voices are all bare
+    notes: `realize_lever` never introduces a tuplet, so a `Tuplet` here would be
+    a real defect rather than something to paper over.
+    """
+    pitches: list[int] = []
+    for item in voice:
+        assert isinstance(item, Note)
+        pitches.append(item.pitch)
+    return pitches
 
 
 def test_layout_hints_stores_its_fields() -> None:
@@ -62,47 +72,57 @@ def test_a_cell_below_one_is_rejected(cell: int) -> None:
 
 
 def test_apex_repeat_duplicates_a_single_note_apex() -> None:
-    voice = [_n(23), _n(24), _n(25)]
+    voice: Voice = [_n(23), _n(24), _n(25)]
     assert _pitches(realize_lever(voice, Lever.APEX_REPEAT, seam=2)) == [23, 24, 25, 25]
 
 
 def test_apex_repeat_duplicates_a_whole_cell() -> None:
     # A four-note chromatic group ending at its apex: repeating it adds four
     # notes, not one.
-    voice = [_n(23), _n(24), _n(25), _n(26), _n(27), _n(28), _n(29), _n(30)]
+    voice: Voice = [_n(23), _n(24), _n(25), _n(26), _n(27), _n(28), _n(29), _n(30)]
     result = realize_lever(voice, Lever.APEX_REPEAT, seam=3, cell=4)
     assert _pitches(result) == [23, 24, 25, 26, 23, 24, 25, 26, 27, 28, 29, 30]
 
 
 def test_apex_omit_drops_a_single_note_apex() -> None:
-    voice = [_n(23), _n(24), _n(25)]
+    voice: Voice = [_n(23), _n(24), _n(25)]
     assert _pitches(realize_lever(voice, Lever.APEX_OMIT, seam=1)) == [23, 25]
 
 
 def test_apex_omit_drops_a_whole_cell() -> None:
-    voice = [_n(23), _n(24), _n(25), _n(26), _n(27), _n(28), _n(29), _n(30)]
+    voice: Voice = [_n(23), _n(24), _n(25), _n(26), _n(27), _n(28), _n(29), _n(30)]
     result = realize_lever(voice, Lever.APEX_OMIT, seam=3, cell=4)
     assert _pitches(result) == [27, 28, 29, 30]
 
 
 def test_add_one_repeats_the_trailing_note() -> None:
-    voice = [_n(23), _n(24), _n(25)]
+    voice: Voice = [_n(23), _n(24), _n(25)]
     assert _pitches(realize_lever(voice, Lever.ADD_ONE, seam=None)) == [23, 24, 25, 25]
 
 
 def test_drop_one_removes_the_trailing_note() -> None:
-    voice = [_n(23), _n(24), _n(25)]
+    voice: Voice = [_n(23), _n(24), _n(25)]
     assert _pitches(realize_lever(voice, Lever.DROP_ONE, seam=None)) == [23, 24]
 
 
 @pytest.mark.parametrize("lever", [Lever.APEX_REPEAT, Lever.APEX_OMIT])
 def test_an_apex_lever_without_a_seam_is_rejected(lever: Lever) -> None:
+    voice: Voice = [_n(23), _n(24), _n(25)]
     with pytest.raises(ValueError, match="seam"):
-        realize_lever([_n(23), _n(24), _n(25)], lever, seam=None)
+        realize_lever(voice, lever, seam=None)
+
+
+def test_an_unknown_lever_is_rejected() -> None:
+    # The fitter only ever passes a `Lever`, so the trailing guard is
+    # unreachable in normal use; a bogus value proves it fails loudly rather
+    # than silently returning the voice unchanged (no silent failures).
+    voice: Voice = [_n(23)]
+    with pytest.raises(ValueError, match="unknown lever"):
+        realize_lever(voice, cast("Lever", object()), seam=None)
 
 
 def test_realize_lever_returns_a_new_list() -> None:
-    voice = [_n(23), _n(24), _n(25)]
+    voice: Voice = [_n(23), _n(24), _n(25)]
     result = realize_lever(voice, Lever.DROP_ONE, seam=None)
     assert result is not voice
     assert _pitches(voice) == [23, 24, 25]
