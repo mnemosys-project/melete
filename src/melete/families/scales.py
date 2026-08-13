@@ -153,6 +153,17 @@ _OCTAVE_PER_STRING = "octave_per_string"
 _SINGLE_STRING = "single_string"
 _STRAIGHT = "straight"
 
+#: §7's `direction` default (#117). Drilling a scale both ways is the norm, so an
+#: unspecified `direction` reads as `up_down` rather than a required parameter.
+_UP_DOWN = "up_down"
+
+#: The key under which a declared layout compromise travels in the Score's params,
+#: and the one value this family records there (#117). A `positional` two-octave
+#: scale that will not sit under one hand drops to a single octave played
+#: up-and-down, and says so here rather than silently shifting out of position.
+_LAYOUT_FALLBACK = "layout_fallback"
+_ONE_OCTAVE_UP_DOWN = "one_octave_up_down"
+
 #: The subset of §7's `traversal` column this family realizes. `vocabulary`
 #: carries the union of every family's traversals in one axis, so the family
 #: states which of them it can lay out — `across_strings` belongs to
@@ -268,25 +279,51 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     Pure: the same profile and parameters always produce the same Score. Extra
     keys in `params` are carried into the Score untouched rather than rejected
     — §8's rhythm axes travel in the same dictionary — but every axis this
-    family reads is required, so a misspelled one is a loud failure and never a
-    silent default.
+    family reads is required *except* `direction`, which defaults to `up_down`
+    (#117): drilling a scale both ways is the norm, so a misspelled axis is still
+    a loud failure while an absent `direction` is the common case, not an error.
 
-    The hints here are §4.2's minimum: one turn of the `pattern` window is the
-    natural cell, with the plain add/drop levers and no seam. The precise
-    `up_down` apex accounting is #117's work; this task only widens the return.
+    Two octaves is *attempted* from the lowest string of `string_set`, with one
+    declared fallback and no silent shift (#117). When a `positional` traversal
+    cannot hold two octaves under one hand, the family drops to a single octave
+    played up-and-down and records the compromise in `params["layout_fallback"]`
+    — a positional scale never quietly shifts out of position to fake the second
+    octave. Any other refusal (a non-positional traversal, an already-one-octave
+    request, or a scale that will not fit even at one octave) is re-raised (§13).
+
+    The hints carry §4.2's layout accounting: one turn of the `pattern` window is
+    the natural cell, and an `up_down` voice declares its apex — the `seam` where
+    the ascending half turns around — with the apex-repeat/omit levers the fitter
+    uses to reach a whole-bar count. A one-directional voice has no apex, so it
+    carries no seam and the plain add/drop levers instead.
     """
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
     scale_type = read.identifier("scale_type")
     traversal = realizable(read, "traversal", _TRAVERSALS)
     pattern = realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
-    direction = read.identifier("direction")
+    direction = read.identifier("direction") if "direction" in params else _UP_DOWN
     octave_count = octaves(read)
     strings = string_set(read, profile)
 
     pitches = theory.scale_pitches(root, scale_type, octave_count)
-    places = _places(profile, pitches, strings, traversal, scale_type, octave_count)
-    order = apply_direction(windowed(_PATTERN_WINDOWS[pattern], len(pitches)), direction)
+    fallback: str | None = None
+    try:
+        places = _places(profile, pitches, strings, traversal, scale_type, octave_count)
+    except ValueError:
+        # A `positional` two-octave scale that will not fit is the one case with a
+        # declared compromise: retry at one octave. Every other refusal — another
+        # traversal, or a scale that fails even at one octave — propagates (§13).
+        if traversal == _POSITIONAL and octave_count > 1:
+            octave_count = 1
+            pitches = theory.scale_pitches(root, scale_type, octave_count)
+            places = _places(profile, pitches, strings, traversal, scale_type, octave_count)
+            fallback = _ONE_OCTAVE_UP_DOWN
+        else:
+            raise
+
+    ascending = windowed(_PATTERN_WINDOWS[pattern], len(pitches))
+    order = apply_direction(ascending, direction)
 
     voice: Voice = [
         Note(
@@ -300,6 +337,9 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         for degree in order
     ]
 
+    carried = dict(params)
+    if fallback is not None:
+        carried[_LAYOUT_FALLBACK] = fallback
     score = Score(
         title=_title(root, scale_type, traversal, pattern, direction),
         instruction=INSTRUCTION,
@@ -310,13 +350,18 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         # §10a: the exercise is spelled against its own scale, and `root`
         # reduces to a pitch class because A1 and A2 are the same key.
         key=theory.Key(root % len(theory.PITCH_CLASSES), scale_type),
-        params=dict(params),
+        params=carried,
     )
-    # Minimal but valid hints (§4.2): one turn of the pattern window is the cell,
-    # no seam, plain add/drop levers. #117 refines the `up_down` apex accounting.
+    # §4.2 hints: the pattern window is the cell; an up_down voice is
+    # `there_and_back` over the ascending order, so its apex — the last ascending
+    # note — is the seam, and the fitter reaches a whole bar by repeating or
+    # omitting that apex. A one-directional voice has no apex: no seam, add/drop.
+    up_and_down = direction == _UP_DOWN
     hints = layout_hints(
-        cell=max(1, len(_PATTERN_WINDOWS[pattern])),
-        seam=None,
-        levers=(Lever.ADD_ONE, Lever.DROP_ONE),
+        cell=len(_PATTERN_WINDOWS[pattern]),
+        seam=len(ascending) - 1 if up_and_down else None,
+        levers=(Lever.APEX_REPEAT, Lever.APEX_OMIT)
+        if up_and_down
+        else (Lever.ADD_ONE, Lever.DROP_ONE),
     )
     return score, hints
