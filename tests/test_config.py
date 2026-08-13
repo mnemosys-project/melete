@@ -520,9 +520,7 @@ def test_an_empty_axis_is_rejected() -> None:
 
 
 def test_every_rhythm_axis_loads() -> None:
-    cfg = load_string(
-        "[pool.rhythm]\naccent_patterns = \"all\"\nnote_value_patterns = \"all\"\n"
-    )
+    cfg = load_string('[pool.rhythm]\naccent_patterns = "all"\nnote_value_patterns = "all"\n')
     assert set(cfg.rhythm.values) == {axis.name for axis in _RHYTHM_AXES}
 
 
