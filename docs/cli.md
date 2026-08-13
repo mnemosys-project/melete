@@ -39,6 +39,10 @@ each other. Run melete from the directory that holds `config.toml`.
 A missing or unreadable `config.toml` is a hard error naming the path. There is
 no built-in default configuration.
 
+During development inside this repository, run melete from the gitignored
+`build/` directory so artifacts land in `build/sessions/<date>/`; generated
+output is never committed.
+
 ## Synopsis
 
 ```text
