@@ -1,0 +1,5 @@
+\title "G chromatic fourths, adjacent strings, descending pairs, descending"
+\tuning(C3 G2 D2 A1 E1 B0)
+\instrument(34)
+.
+\ts 6 4 \clef bass \tempo 70 \ro 22.3.8{d} 22.4.16 21.3.8{d} 21.4{acc #}.16 20.3{acc #}.8{d} 20.4.16 19.3.8{d} 19.4.16 18.3{acc #}.8{d} 18.4{acc #}.16 17.3.8{d} 17.4.16 | \rc 2 16.3{acc #}.8{d} 16.4{acc #}.16 15.3.8{d} 15.4.16 14.3.8{d} 14.4.16 13.3{acc #}.8{d} 13.4{acc #}.16 12.3.8{d} 12.4.16 11.3{acc #}.8{d} 11.4{acc #}.16
