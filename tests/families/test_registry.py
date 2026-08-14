@@ -39,17 +39,15 @@ SPEC: dict[str, object] = {
     "span": 2,
 }
 
-#: Two octaves across *every* string: a positional two-octave scale needs the
-#: whole set to fit under one hand, and over the low four strings it does not
-#: (issue #57).
+#: The computed outer-to-outer journey (epic #72 §5): the four axes the family
+#: reads after the three geometry axes were retired. Extent, string coverage and
+#: octave count are emergent, not sampled — a positional box climbs the whole
+#: neck within one hand on this draw.
 SCALES_SPEC: dict[str, object] = {
     "root": 33,
     "scale_type": "dorian",
     "traversal": "positional",
-    "string_set": (0, 1, 2, 3, 4, 5),
     "pattern": "straight",
-    "range_octaves": 2,
-    "direction": "up",
 }
 
 ARPEGGIOS_SPEC: dict[str, object] = {

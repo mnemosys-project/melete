@@ -538,13 +538,13 @@ def test_an_over_constrained_pool_names_the_axis_that_could_not_be_satisfied(
     write_config(
         project,
         session="shape = { scales = 1 }",
-        scales=SCALES.replace('directions = ["up", "down", "up_down"]\n', ""),
+        scales=SCALES.replace('patterns = ["straight", "thirds"]\n', ""),
     )
 
     result = run(["generate"])
 
     assert result.exit_code == 1
-    assert "direction" in result.stderr
+    assert "pattern" in result.stderr
     assert "pool.scales" in result.stderr
 
 

@@ -403,7 +403,7 @@ def test_a_selection_is_pushed_onto_the_history_at_distance_zero() -> None:
     picks = select(config, [], seeded(10))
     drawn, next_slot = picks[0][0], picks[1][1]
 
-    for axis in ("scale_type", "pattern", "direction", "accent_pattern"):
+    for axis in ("scale_type", "traversal", "pattern", "accent_pattern"):
         assert next_slot.distances[axis][axis_key(drawn.params[axis])] == 0
 
 
@@ -436,14 +436,21 @@ def test_only_the_horizon_is_read_back() -> None:
 
 
 def test_an_axis_the_family_does_not_read_is_not_a_use_of_it() -> None:
-    """A chromatic exercise says nothing about `scale_type` (spec §9)."""
+    """A chromatic exercise says nothing about `scale_type` (spec §9).
+
+    `accent_pattern` is §8's rhythm axis, which every family reads, so a
+    chromatic exercise that used one *is* recorded against the scales draw; a
+    scale-only axis like `scale_type`, which chromatic never reads, is not. That
+    contrast is the point — a coverage system that credited an axis the past
+    family did not read would avoid variety it never actually consumed.
+    """
     config = scales_config(session=shape(scales=1))
-    chromatic = ExerciseSpec(family="chromatic", params={"direction": "up"})
+    chromatic = ExerciseSpec(family="chromatic", params={"accent_pattern": "none"})
 
     _spec, inputs = select(config, [[chromatic]], seeded(15))[0]
 
     assert all(distance is None for distance in inputs.distances["scale_type"].values())
-    assert inputs.distances["direction"]["up"] == 1
+    assert inputs.distances["accent_pattern"]["none"] == 1
 
 
 def test_the_weight_inputs_record_every_axis_the_draw_consulted() -> None:
@@ -598,10 +605,14 @@ def test_a_shifting_exercise_is_still_allowed_to_shift() -> None:
 
 
 def test_max_notes_is_a_gate_rather_than_a_truncation() -> None:
-    config = scales_config(session=f"{shape(scales=4)}max_notes = 30\n")
+    # The outer-to-outer journey makes even a `straight` cycle ~32 notes and a
+    # grouping pattern far more, so a 40-note ceiling admits the plain journey
+    # and gates the longer patterns — resampling them away rather than truncating
+    # a cycle to fit (spec §7, decision #17).
+    config = scales_config(session=f"{shape(scales=4)}max_notes = 40\n")
 
     for spec in specs_of(select(config, [], seeded(25))):
-        assert printed_notes(config, spec) <= 30
+        assert printed_notes(config, spec) <= 40
 
 
 def test_an_unconfigured_axis_is_a_loud_error_naming_it() -> None:
@@ -684,9 +695,6 @@ MEASURED_AXES = (
     "root",
     "scale_type",
     "pattern",
-    "direction",
-    "string_set",
-    "range_octaves",
     "accent_pattern",
     "note_value_pattern",
 )

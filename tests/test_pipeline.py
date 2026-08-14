@@ -69,8 +69,12 @@ intervals = [3, 4, 5, 6]
 contexts = ["chromatic", "diatonic"]
 roots = "all"
 scale_types = ["ionian", "dorian", "aeolian"]
+# The string sets contain the lowest string, because since #72 Task E1 the root
+# is anchored on the lowest instrument string; a set that excludes it cannot
+# carry the anchored root, so an intervals pool built before E1 is now mostly
+# unrealizable. (Intervals still reads `string_set` until Task D2 migrates it.)
 string_skips = ["0", "1"]
-string_sets = [[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5]]
+string_sets = [[0, 1, 2, 3], [0, 1, 2, 3, 4]]
 directions = ["up", "down", "up_down"]
 patterns = ["ascending_pairs", "descending_pairs", "alternating"]
 
