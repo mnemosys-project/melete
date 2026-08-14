@@ -57,8 +57,11 @@ _SUBDIVISION_FOR_CELL: dict[int, str] = {
 
 #: Sane beats-per-bar; a hard filter that outranks even-M (spec §4.5). 2/4 stays
 #: in the whitelist so a genuinely one-beat exercise still tiles (span=1 chromatic
-#: repeats its apex cell to 2/4 x 1), but it is demoted to a strict last resort in
-#: the ranking below — never chosen when any 3/4, 4/4 or 6/4 fit exists (melete#174).
+#: repeats its apex cell to 2/4 x 1), but it is demoted to a strict last resort:
+#: ``_candidates`` ranks it last *within* a leverless fit (melete#174), and
+#: ``_quality`` ranks any non-2 fit — even one that burns a lever — above it
+#: *across* fits (melete#178). 2/4 therefore wins only when every reachable fit
+#: is 2/4 (the one-beat drill).
 _SANE_BEATS: tuple[int, ...] = (2, 3, 4, 6)
 
 
@@ -116,9 +119,16 @@ def _try(note_count: int, hints: LayoutHints, applied: tuple[Lever, ...]) -> Lay
         return None
 
 
-def _quality(plan: LayoutPlan) -> tuple[int, int]:
-    """Lower is better: prefer an even bar count, then fewer levers."""
-    return (0 if plan.bars % 2 == 0 else 1, len(plan.levers_applied))
+def _quality(plan: LayoutPlan) -> tuple[int, int, int]:
+    """Lower is better: avoid 2/4 above all, then prefer even bars, then fewer levers.
+
+    ``uses_2_4`` is the top term (melete#178): any non-2 fit — even one that burns
+    a lever — outranks any 2/4 fit, so 2/4 wins only when *every* reachable fit is
+    2/4 (the genuinely one-beat drill). It complements the leverless demotion of
+    melete#174, which only ranked 2/4 last among candidates *within* a single fit.
+    """
+    uses_2_4 = 1 if plan.time_signature[0] == 2 else 0
+    return (uses_2_4, 0 if plan.bars % 2 == 0 else 1, len(plan.levers_applied))
 
 
 def fit(note_count: int, hints: LayoutHints) -> LayoutPlan:
