@@ -15,7 +15,6 @@ into something engravable.
 from __future__ import annotations
 
 from fractions import Fraction
-from itertools import product
 from typing import TYPE_CHECKING
 
 import pytest
@@ -48,7 +47,6 @@ PARAMS: dict[str, object] = {
     "permutation": (1, 2, 3, 4),
     "start_string": 0,
     "start_fret": 5,
-    "direction": "up",
     "string_traversal": "adjacent",
     "shift": "none",
     "span": 4,
@@ -100,8 +98,9 @@ def strings_of(score: Score) -> list[int]:
 
 
 def test_generates_one_complete_cycle() -> None:
-    # span 4 strings x 4 fingers = 16 notes, no truncation (spec §7).
-    assert len(generate(BASS6, PARAMS).voice) == 16
+    # span 4 strings, up-and-down: there_and_back walks 7 string-groups
+    # (4 out, 3 back) x 4 fingers = 28 notes, no truncation (spec §7, §5).
+    assert len(generate(BASS6, PARAMS).voice) == 28
 
 
 def test_obeys_the_central_invariant() -> None:
@@ -126,7 +125,8 @@ def test_fingering_is_first_class() -> None:
 
 def test_every_group_plays_the_whole_permutation() -> None:
     fingers = [note.finger for note in notes_of(generate(BASS6, params(permutation=(3, 1, 4, 2))))]
-    assert fingers == [3, 1, 4, 2] * 4
+    # span 4, up-and-down: 7 string-groups, each the whole permutation as written.
+    assert fingers == [3, 1, 4, 2] * 7
 
 
 def test_params_travel_inside_the_score() -> None:
@@ -151,7 +151,11 @@ def test_the_score_carries_a_title_and_a_focus_cue() -> None:
     score = generate(BASS6, params(permutation=(2, 4, 1, 3)))
     assert "2-4-1-3" in score.title
     assert "adjacent strings" in score.title
-    assert "ascending" in score.title
+    # The journey is always up-and-down, so the title states no direction word
+    # (spec §5, decision 1) — an "ascending"/"descending" cue would name a
+    # variation the family no longer produces.
+    assert "ascending" not in score.title
+    assert "descending" not in score.title
     assert score.instruction == INSTRUCTION
 
 
@@ -177,39 +181,53 @@ def test_generate_is_pure() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_direction_up_climbs_the_strings() -> None:
+def test_chromatic_covers_the_full_span_and_returns() -> None:
+    # spec §6, defect 1: start on an outer string, traverse the full set to the
+    # opposite outer string, turn around and return — always up-and-down.
+    spec = {
+        "permutation": (3, 1, 4, 2),
+        "start_string": 0,
+        "start_fret": 5,
+        "string_traversal": "adjacent",
+        "shift": "none",
+        "span": 6,
+    }  # no `direction` axis: the journey is always up-and-down
+    score = generate(BASS6, spec)
+    strings = sorted({note.string for note in notes_of(score)})
+    assert strings == list(range(6))  # every string, no gap or repeat-only
+    first, last = notes_of(score)[0].string, notes_of(score)[-1].string
+    assert first == 0 and last == 0  # outer string out and back
+
+
+def test_the_journey_climbs_out_and_returns_without_replaying_the_turnaround() -> None:
+    # Every journey is up-and-down (spec §5, decision 1): it climbs from the
+    # start string to the opposite outer string of the set and returns, without
+    # replaying the turnaround string (which would sound the same four notes
+    # twice in a row).
     score = generate(BASS6, params(start_string=1, span=3))
-    assert strings_of(score) == [1] * 4 + [2] * 4 + [3] * 4
-
-
-def test_direction_down_descends_from_the_starting_string() -> None:
-    score = generate(BASS6, params(direction="down", start_string=3, span=3))
-    assert strings_of(score) == [3] * 4 + [2] * 4 + [1] * 4
-
-
-def test_direction_up_down_returns_without_replaying_the_turnaround() -> None:
-    score = generate(BASS6, params(direction="up_down", start_string=1, span=3))
     assert strings_of(score) == [1] * 4 + [2] * 4 + [3] * 4 + [2] * 4 + [1] * 4
 
 
-def test_up_down_over_one_string_is_a_single_pass() -> None:
+def test_a_single_string_journey_is_a_single_pass() -> None:
     # The turnaround string is the only string, so there is nothing to return
     # along and the cycle is four notes rather than a repeat of them.
-    score = generate(BASS6, params(direction="up_down", span=1))
+    score = generate(BASS6, params(span=1))
     assert strings_of(score) == [0] * 4
 
 
-def test_the_permutation_is_played_as_written_when_descending() -> None:
-    # `direction` orders the strings and never the fingers: reversing the
-    # permutation on the way down would alias two specifications onto one
-    # exercise, which §9's coverage accounting could not see.
-    score = generate(BASS6, params(direction="down", start_string=3, span=2))
-    assert [note.finger for note in notes_of(score)] == [1, 2, 3, 4, 1, 2, 3, 4]
+def test_the_permutation_is_played_as_written_in_both_directions() -> None:
+    # `direction` is no longer an axis, but the permutation is still played as
+    # written on the way down and never reversed: reversing it would alias two
+    # specifications onto one exercise, which §9's coverage accounting could not
+    # see.
+    score = generate(BASS6, params(start_string=3, span=2))
+    # span 2 up-and-down walks strings [3, 4, 3] — three groups.
+    assert [note.finger for note in notes_of(score)] == [1, 2, 3, 4] * 3
 
 
 def test_skip_1_traversal_steps_over_a_string() -> None:
     score = generate(BASS6, params(string_traversal="skip_1", span=3))
-    assert strings_of(score) == [0] * 4 + [2] * 4 + [4] * 4
+    assert strings_of(score) == [0] * 4 + [2] * 4 + [4] * 4 + [2] * 4 + [0] * 4
 
 
 def test_single_string_traversal_stays_on_one_string() -> None:
@@ -219,20 +237,28 @@ def test_single_string_traversal_stays_on_one_string() -> None:
 
 
 def test_shift_none_repeats_the_same_frets_on_every_string() -> None:
+    # span 2 up-and-down walks three string-groups [0, 1, 0]; no shift, so the
+    # same four frets sound on each.
     frets = [note.fret for note in notes_of(generate(BASS6, params(span=2)))]
-    assert frets == [5, 6, 7, 8, 5, 6, 7, 8]
+    assert frets == [5, 6, 7, 8, 5, 6, 7, 8, 5, 6, 7, 8]
 
 
 def test_shift_fret_per_cycle_walks_up_one_fret_per_permutation() -> None:
+    # The per-cycle shift advances on every group of the whole up-and-down
+    # journey, so the diagonal keeps climbing through the descent (spec §6).
     score = generate(BASS6, params(shift="fret_per_cycle", span=3))
-    assert [note.fret for note in notes_of(score)] == [5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10]
+    frets = [note.fret for note in notes_of(score)]
+    assert frets == [5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10, 8, 9, 10, 11, 9, 10, 11, 12]
 
 
 def test_shift_position_per_cycle_moves_a_whole_hand_position() -> None:
     # A position is one finger per fret, so the next cycle starts where the
     # little finger left off plus one.
+    # span 2 up-and-down walks three groups; the position shift advances a whole
+    # hand position on each, climbing through the descent (spec §6).
     score = generate(BASS6, params(shift="position_per_cycle", span=2))
-    assert [note.fret for note in notes_of(score)] == [5, 6, 7, 8, 9, 10, 11, 12]
+    frets = [note.fret for note in notes_of(score)]
+    assert frets == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
 
 def test_the_open_string_is_reachable() -> None:
@@ -245,13 +271,15 @@ def test_the_open_string_is_reachable() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_a_one_way_pass_emits_the_plain_add_drop_levers() -> None:
-    # No turnaround, so no apex to repeat or omit: the cell is the permutation
-    # group, there is no seam, and the only note-count moves are add/drop-one.
+def test_every_journey_emits_the_apex_levers_and_a_seam() -> None:
+    # The journey is always up-and-down (spec §5, decision 1), so it always
+    # turns around on an apex: the cell is the permutation group, the seam is the
+    # last note of the ascent (span * cell - 1 = 4 * 4 - 1 = 15), and the apex
+    # levers repeat or omit that turnaround cell to reach a whole-bar count.
     _score, hints = _generate(BASS6, PARAMS)
     assert hints.cell == 4
-    assert hints.seam is None
-    assert hints.levers == (Lever.ADD_ONE, Lever.DROP_ONE)
+    assert hints.seam == 15
+    assert hints.levers == (Lever.APEX_REPEAT, Lever.APEX_OMIT)
 
 
 def test_all_strings_up_and_down_emits_the_apex_levers_and_seam() -> None:
@@ -262,7 +290,6 @@ def test_all_strings_up_and_down_emits_the_apex_levers_and_seam() -> None:
     spec = params(
         permutation=(1, 2, 4, 3),
         start_string=0,
-        direction="up_down",
         string_traversal="adjacent",
         span=6,
     )
@@ -284,7 +311,6 @@ def test_all_strings_cycle_fits_two_bars_of_six_four_via_apex_repeat() -> None:
     spec = params(
         permutation=(1, 2, 4, 3),
         start_string=0,
-        direction="up_down",
         string_traversal="adjacent",
         span=6,
     )
@@ -305,30 +331,32 @@ def test_all_strings_cycle_fits_two_bars_of_six_four_via_apex_repeat() -> None:
 @pytest.mark.parametrize("start_fret", range(13))
 def test_invariant_holds_across_the_sweep(profile_name: str, start_fret: int) -> None:
     profile = PROFILES[profile_name]
-    spec = params(start_fret=start_fret, span=min(4, len(profile.tuning)))
+    span = min(4, len(profile.tuning))
+    spec = params(start_fret=start_fret, span=span)
     score = generate(profile, spec)
     assert_central_invariant(score)
     assert_spelling_sounds_correctly(score)
     assert score.key is None
-    assert len(score.voice) == 4 * min(4, len(profile.tuning))
+    # up-and-down: there_and_back walks 2*span - 1 string-groups x 4 fingers.
+    assert len(score.voice) == 4 * (2 * span - 1)
 
 
 @pytest.mark.parametrize("permutation", PERMUTATIONS)
 def test_invariant_holds_for_every_permutation(permutation: tuple[int, ...]) -> None:
     score = generate(BASS6, params(permutation=permutation))
     assert_central_invariant(score)
-    assert [note.finger for note in notes_of(score)] == list(permutation) * 4
+    # span 4 up-and-down: 7 string-groups, each the whole permutation as written.
+    assert [note.finger for note in notes_of(score)] == list(permutation) * 7
 
 
-@pytest.mark.parametrize(
-    ("direction", "shift"),
-    list(product(["up", "down", "up_down"], ["none", "fret_per_cycle", "position_per_cycle"])),
-)
-def test_invariant_holds_across_directions_and_shifts(direction: str, shift: str) -> None:
-    score = generate(BASS6, params(direction=direction, shift=shift, start_string=2, span=3))
+@pytest.mark.parametrize("shift", ["none", "fret_per_cycle", "position_per_cycle"])
+def test_invariant_holds_across_shifts(shift: str) -> None:
+    # Direction is no longer sampled; every journey is up-and-down (spec §5).
+    # span 3 walks 2*3 - 1 = 5 string-groups x 4 fingers = 20 notes.
+    score = generate(BASS6, params(shift=shift, start_string=2, span=3))
     assert_central_invariant(score)
     assert_spelling_sounds_correctly(score)
-    assert len(score.voice) == (20 if direction == "up_down" else 12)
+    assert len(score.voice) == 20
 
 
 @pytest.mark.parametrize(
@@ -357,10 +385,11 @@ def test_a_missing_axis_names_the_axis_and_the_family_s_axes() -> None:
 
 
 def test_an_unknown_identifier_lists_the_accepted_values() -> None:
-    # Spec §7 words chromatic's third direction "both"; the registry spells
-    # every family's direction axis `up_down` (§13, decision #19).
-    with pytest.raises(ValueError, match=r"unknown direction 'both'.*up_down"):
-        generate(BASS6, params(direction="both"))
+    # An identifier axis names its accepted values when handed one it does not
+    # know (§13). `direction` is no longer an axis, so `string_traversal` stands
+    # in for the identifier contract.
+    with pytest.raises(ValueError, match=r"unknown string_traversal 'both'.*adjacent"):
+        generate(BASS6, params(string_traversal="both"))
 
 
 def test_a_non_string_identifier_is_rejected() -> None:
@@ -401,9 +430,11 @@ def test_running_off_the_top_of_the_fretboard_raises() -> None:
         generate(PROFILES["bass4"], params(string_traversal="skip_1", span=3))
 
 
-def test_descending_below_the_lowest_string_raises() -> None:
+def test_starting_below_the_lowest_string_raises() -> None:
+    # The journey climbs from `start_string`, so a negative start runs off the
+    # bottom of the neck; it is raised, never clamped (§10).
     with pytest.raises(ValueError, match=r"strings -1 to 1 are off profile 'bass6'"):
-        generate(BASS6, params(direction="down", start_string=1, span=3))
+        generate(BASS6, params(start_string=-1, span=3))
 
 
 def test_running_past_the_last_fret_raises() -> None:
@@ -417,6 +448,8 @@ def test_a_negative_start_fret_raises() -> None:
 
 
 def test_a_shift_that_walks_off_the_neck_raises() -> None:
+    # span 3 up-and-down walks five string-groups, so the position shift climbs
+    # four positions (cycles 0..4): 18 + 3 + 4 * 4 = fret 37, off the neck.
     spec = params(shift="position_per_cycle", start_fret=18, span=3)
-    with pytest.raises(ValueError, match=r"frets 18 to 29 are off profile 'bass6'"):
+    with pytest.raises(ValueError, match=r"frets 18 to 37 are off profile 'bass6'"):
         generate(BASS6, spec)

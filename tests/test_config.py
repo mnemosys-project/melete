@@ -714,6 +714,16 @@ def test_pools_are_declared_for_exactly_the_registry_families() -> None:
     assert set(_AXES_BY_FAMILY) == set(vocabulary.accepted("family"))
 
 
+#: The geometry axes epic #72 retires. A family stops reading its geometry axis
+#: in its own rewrite task (chromatic's `direction` in D1, scales' and arpeggios'
+#: sets in B2/C2, etc.), and E2 then removes the axis from every pool. In that
+#: window a pool still *samples* an axis its family no longer *reads* — a
+#: carried-but-unread key, the existing contract — so the exact-equality
+#: invariant relaxes to "the pool may over-sample only these retiring axes" until
+#: E2 restores equality by dropping them.
+_RETIRING_GEOMETRY_AXES = {"direction", "string_set", "range_octaves", "traversal"}
+
+
 def test_the_pool_samples_exactly_the_axes_each_family_requires() -> None:
     # The requirement is *derived* from the family, never restated here: the
     # family module owns the list of axes it reads, and a copy in this test
@@ -724,7 +734,12 @@ def test_the_pool_samples_exactly_the_axes_each_family_requires() -> None:
     # could draw from it was missing an axis the family requires, and the
     # failure surfaced in the selector rather than here.
     for family, entry in REGISTRY.items():
-        assert {axis.name for axis in _AXES_BY_FAMILY[family]} == set(entry.axes), family
+        pool = {axis.name for axis in _AXES_BY_FAMILY[family]}
+        read = set(entry.axes)
+        # Every axis the family reads must be sampled (the realizability guard).
+        assert read <= pool, family
+        # Any axis the pool samples beyond that must be one epic #72 is retiring.
+        assert pool - read <= _RETIRING_GEOMETRY_AXES, family
 
 
 def test_no_axis_key_is_declared_twice_within_a_family() -> None:

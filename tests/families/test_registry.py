@@ -34,7 +34,6 @@ SPEC: dict[str, object] = {
     "permutation": (4, 3, 2, 1),
     "start_string": 0,
     "start_fret": 3,
-    "direction": "up",
     "string_traversal": "adjacent",
     "shift": "none",
     "span": 2,

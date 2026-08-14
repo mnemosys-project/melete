@@ -13,21 +13,24 @@ truncated. Here the cycle is one pass over the strings the specification
 covers, playing the permutation once on each: `span` strings x four fingers.
 With `span = 4` that is sixteen notes.
 
+## The journey is always up-and-down
+
+The exercise starts on `start_string`, the outer string of the set, traverses
+the full set outward to the opposite outer string, and returns as the exact
+retrograde (spec §5, decision 1). There is no sampled `direction`: every
+journey is up-and-down, so a `direction` axis would only name variations the
+family no longer produces, and the single-direction escape hatch (decision 1)
+is a code seam rather than a config axis. The turnaround string plays once —
+`there_and_back` — so its four notes are not sounded twice in a row. The
+permutation itself is always played as written and never reversed: reversing it
+on the way down would alias `(1, 2, 3, 4)` onto `(4, 3, 2, 1)` and hide two
+specifications behind one exercise (§6 on `finger` being first class).
+
 ## The axes, and what this module decided about them
 
-Three of §7's seven axes admit more than one reading. Each is settled here
+Two of the remaining axes admit more than one reading. Each is settled here
 rather than left to the caller, and the choices are stated because they are
 choices:
-
-**`direction` orders the strings, and never the fingers.** Playing the
-retrograde of the permutation on the way down is what a bassist does by habit,
-but it would make `(1, 2, 3, 4)` descending the same note sequence as
-`(4, 3, 2, 1)` ascending reversed — two specifications, one exercise, and an
-alias the coverage-aware selector of §9 would have no way to see. The
-permutation *is* the exercise (§6 on `finger` being first class), so it is
-played as written and `direction` decides only the order the strings are
-visited. `up_down` ascends and returns without replaying the turnaround
-string, which would otherwise sound the same four notes twice in a row.
 
 **`shift` advances once per permutation cycle**, not once per pass. A cycle of
 the permutation is the four notes of one group, so `fret_per_cycle` starts
@@ -100,7 +103,6 @@ AXES = (
     "permutation",
     "start_string",
     "start_fret",
-    "direction",
     "string_traversal",
     "shift",
     "span",
@@ -129,15 +131,14 @@ def _permutation(read: Parameters) -> tuple[int, ...]:
     return tuple(value)
 
 
-def _strings(direction: str, traversal: str, start_string: int, span: int) -> list[int]:
+def _strings(traversal: str, start_string: int, span: int) -> list[int]:
     """The string each permutation cycle is played on, in playing order.
 
-    `down` walks *downward from* `start_string` rather than reversing the ascent,
-    which is why this family orders its own strings instead of handing the walk
-    to `_shared.apply_direction`. The exercise begins on the string it was
-    specified to begin on, so descending covers a different set of strings and is
-    not the ascending pass played backwards. Only the turnaround is shared, and
-    it is shared exactly — `scales` does the same thing to its degrees.
+    The journey is always up-and-down (spec §5, decision 1): it starts on
+    `start_string`, the outer string of the set, traverses the full set outward
+    to the opposite outer string, and returns as the exact retrograde. The
+    turnaround string plays once — `there_and_back` — so the apex four notes are
+    not sounded twice in a row. `scales` does the same thing to its degrees.
     """
     if span < 1:
         msg = f"{_FAMILY}: span must cover at least one string, got {span}"
@@ -151,17 +152,18 @@ def _strings(direction: str, traversal: str, start_string: int, span: int) -> li
         )
         raise ValueError(msg)
 
-    step = -_STRING_STEP[traversal] if direction == "down" else _STRING_STEP[traversal]
-    walk = [start_string + cycle * step for cycle in range(span)]
-    return there_and_back(walk) if direction == "up_down" else walk
+    walk = [start_string + cycle * _STRING_STEP[traversal] for cycle in range(span)]
+    return there_and_back(walk)
 
 
-def _title(permutation: tuple[int, ...], traversal: str, direction: str, shift: str) -> str:
-    """The plain-language name §12's cover page prints, built from the registry."""
-    parts = [
-        vocabulary.display("string_traversal", traversal),
-        vocabulary.display("direction", direction),
-    ]
+def _title(permutation: tuple[int, ...], traversal: str, shift: str) -> str:
+    """The plain-language name §12's cover page prints, built from the registry.
+
+    The journey is always up-and-down now (spec §5, decision 1), so the title no
+    longer states a direction — an "ascending"/"descending" word would name a
+    variation the family no longer produces.
+    """
+    parts = [vocabulary.display("string_traversal", traversal)]
     if shift != _NO_SHIFT:
         parts.append(vocabulary.display("shift", shift))
     fingers = "-".join(str(finger) for finger in permutation)
@@ -178,22 +180,20 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     silent default.
 
     The hints are §4.2's: the permutation is the natural cell — one group of
-    `len(permutation)` notes to a beat. An `up_down` pass turns around on its
-    apex, so it carries a seam and the apex levers that repeat or omit that
-    turnaround cell to reach a whole-bar count; a one-way pass has no turnaround,
-    so it carries no seam and only the plain add/drop-one levers.
+    `len(permutation)` notes to a beat. The journey is always up-and-down, so it
+    turns around on its apex and carries a seam and the apex levers that repeat
+    or omit that turnaround cell to reach a whole-bar count.
     """
     read = Parameters(_FAMILY, AXES, params)
     permutation = _permutation(read)
     start_string = read.integer("start_string")
     start_fret = read.integer("start_fret")
     span = read.integer("span")
-    direction = read.identifier("direction")
     traversal = read.identifier("string_traversal")
     shift = read.identifier("shift")
 
     fret_step = _FRET_STEP[shift]
-    strings = _strings(direction, traversal, start_string, span)
+    strings = _strings(traversal, start_string, span)
     positions = [
         (string, start_fret + finger - 1 + cycle * fret_step, finger)
         for cycle, string in enumerate(strings)
@@ -206,8 +206,8 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         msg = (
             f"{_FAMILY}: strings {low_string} to {high_string} are off profile "
             f"{profile.name!r}, which has strings 0 to {last_string}: "
-            f"start_string={start_string} with span={span}, string_traversal={traversal!r} "
-            f"and direction={direction!r} cannot be realized on this instrument"
+            f"start_string={start_string} with span={span} and string_traversal={traversal!r} "
+            f"cannot be realized on this instrument"
         )
         raise ValueError(msg)
 
@@ -235,7 +235,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     ]
 
     score = Score(
-        title=_title(permutation, traversal, direction, shift),
+        title=_title(permutation, traversal, shift),
         instruction=INSTRUCTION,
         instrument=profile,
         time_signature=DEFAULT_TIME_SIGNATURE,
@@ -248,17 +248,13 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         key=None,
         params=dict(params),
     )
-    # The permutation group is the cell. An `up_down` pass turns around on its
-    # apex — the last note of the ascending half — which is `span` string-groups
-    # in, so the apex note index is `span * cell - 1`. That turnaround cell is the
-    # one the apex levers repeat or omit to reach a whole-bar count (§4.6); a
-    # one-way pass has no turnaround, so it carries no seam and only add/drop-one.
+    # The permutation group is the cell. The journey is always up-and-down (spec
+    # §5, decision 1), so it turns around on its apex — the last note of the
+    # ascending half — which is `span` string-groups in, so the apex note index
+    # is `span * cell - 1`. That turnaround cell is the one the apex levers repeat
+    # or omit to reach a whole-bar count (§4.6).
     cell = len(permutation)
-    if direction == "up_down":
-        seam: int | None = span * cell - 1
-        levers = (Lever.APEX_REPEAT, Lever.APEX_OMIT)
-    else:
-        seam = None
-        levers = (Lever.ADD_ONE, Lever.DROP_ONE)
+    seam = span * cell - 1
+    levers = (Lever.APEX_REPEAT, Lever.APEX_OMIT)
     hints = layout_hints(cell=cell, seam=seam, levers=levers)
     return score, hints
