@@ -172,10 +172,12 @@ def test_fit_never_chooses_2_4_when_a_fuller_meter_tiles() -> None:
 
 
 def test_fit_uses_2_4_only_as_a_last_resort_to_rescue_a_one_beat_exercise() -> None:
-    # melete#174: a genuinely one-beat exercise (4 notes / cell 4 = 1 beat, the
-    # span=1 chromatic shape) has no 3/4, 4/4 or 6/4 fit at any reachable count —
-    # APEX_REPEAT can only double the apex cell to 2 beats. 2/4 stays in the
-    # whitelist precisely so this still tiles: 2/4 x 1 via the repeat.
+    # melete#174/#178: a genuinely one-beat exercise (4 notes / cell 4 = 1 beat,
+    # the span=1 chromatic shape) has no 3/4, 4/4 or 6/4 fit at any reachable
+    # count — APEX_REPEAT can only double the apex cell to 2 beats, and both
+    # reachable fits (leverless: no meter; repeat: 2/4 x 1) are un-notatable-any-
+    # other-way. #178 makes 2/4 a true last resort, so this is the *sole* survivor
+    # where every reachable fit is 2/4: it still tiles as 2/4 x 1 via the repeat.
     plan = fit(4, LayoutHints(cell=4, seam=3, levers=(Lever.APEX_REPEAT, Lever.APEX_OMIT)))
     assert plan.time_signature == (2, 4)
     assert plan.bars == 1
@@ -243,14 +245,38 @@ def test_fit_adds_one_note_to_reach_an_even_sane_meter() -> None:
     assert plan.levers_applied == (Lever.ADD_ONE,)
 
 
-def test_fit_keeps_an_odd_but_sane_count_when_no_lever_helps() -> None:
-    # 10 notes / cell 1 = 10 beats -> 2/4 x 5 (odd but sane). +1 -> 11 has no
-    # fit; -1 -> 9 -> 3/4 x 3 is also odd and no better, so the lever-free odd
-    # fit is kept rather than forced (spec §4.6: odd-but-sane fallback, no raise).
+def test_fit_burns_a_lever_to_escape_a_leverless_2_4() -> None:
+    # melete#178: 10 notes / cell 1 = 10 beats tiles LEVERLESSLY only on 2/4 x 5
+    # (10 is 2 x an odd not divisible by 3). Under #174 that leverless 2/4 still
+    # won, because it spent no lever. #178 makes 2/4 a *true* last resort: any
+    # non-2 fit — even one that burns a single lever — outranks a 2/4 fit, so
+    # DROP_ONE -> 9 -> 3/4 x 3 is chosen instead. The one leverless-2/4 count is
+    # rescued by spending a lever.
     plan = fit(10, LayoutHints(cell=1, seam=None, levers=(Lever.ADD_ONE, Lever.DROP_ONE)))
-    assert plan.time_signature == (2, 4)
-    assert plan.bars == 5
-    assert plan.levers_applied == ()
+    assert plan.time_signature == (3, 4)
+    assert plan.bars == 3
+    assert plan.levers_applied == (Lever.DROP_ONE,)
+
+
+@pytest.mark.parametrize(
+    ("beats", "bars", "lever"),
+    [
+        (10, 3, Lever.DROP_ONE),  # -1 -> 9  -> 3/4 x 3
+        (14, 5, Lever.ADD_ONE),  # +1 -> 15 -> 3/4 x 5
+        (22, 7, Lever.DROP_ONE),  # -1 -> 21 -> 3/4 x 7
+        (26, 9, Lever.ADD_ONE),  # +1 -> 27 -> 3/4 x 9
+    ],
+)
+def test_fit_escapes_every_leverless_2_4_count_to_3_4(beats: int, bars: int, lever: Lever) -> None:
+    # melete#178: the four cell-1 counts that tile leverlessly on 2/4 alone
+    # (2 x odd-not-divisible-by-3: 10, 14, 22, 26) each reach a 3/4 fit by
+    # spending exactly one lever (±1 beat lands a multiple of 3). Because 2/4 is
+    # now a true last resort, the fitter burns that lever every time rather than
+    # settle for the leverless 2/4.
+    plan = fit(beats, LayoutHints(cell=1, seam=None, levers=(Lever.ADD_ONE, Lever.DROP_ONE)))
+    assert plan.time_signature == (3, 4)
+    assert plan.bars == bars
+    assert plan.levers_applied == (lever,)
 
 
 def test_fit_drops_a_whole_cell_to_reach_an_even_meter() -> None:
