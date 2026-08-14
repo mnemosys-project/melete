@@ -161,6 +161,27 @@ def test_fit_breaks_a_larger_beat_count_on_the_fuller_bar() -> None:
     assert plan.bars == 4
 
 
+def test_fit_never_chooses_2_4_when_a_fuller_meter_tiles() -> None:
+    # melete#174: 28 sixteenths / cell 1 = 28 beats. 2/4 x 14 is even-barred and
+    # once won the even-M rank outright, but 2/4 is now a strict last resort — it
+    # is never chosen while any 3/4, 4/4 or 6/4 tiles, so the odd-barred 4/4 x 7
+    # wins instead. This is the whole point of the demotion.
+    plan = fit(28, LayoutHints(cell=1, seam=None, levers=()))
+    assert plan.time_signature == (4, 4)
+    assert plan.bars == 7
+
+
+def test_fit_uses_2_4_only_as_a_last_resort_to_rescue_a_one_beat_exercise() -> None:
+    # melete#174: a genuinely one-beat exercise (4 notes / cell 4 = 1 beat, the
+    # span=1 chromatic shape) has no 3/4, 4/4 or 6/4 fit at any reachable count —
+    # APEX_REPEAT can only double the apex cell to 2 beats. 2/4 stays in the
+    # whitelist precisely so this still tiles: 2/4 x 1 via the repeat.
+    plan = fit(4, LayoutHints(cell=4, seam=3, levers=(Lever.APEX_REPEAT, Lever.APEX_OMIT)))
+    assert plan.time_signature == (2, 4)
+    assert plan.bars == 1
+    assert plan.levers_applied == (Lever.APEX_REPEAT,)
+
+
 def test_fit_maps_the_cell_to_its_subdivision() -> None:
     triplet = fit(24, LayoutHints(cell=3, seam=None, levers=()))
     sextuplet = fit(24, LayoutHints(cell=6, seam=None, levers=()))
