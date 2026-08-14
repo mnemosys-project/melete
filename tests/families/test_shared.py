@@ -4,8 +4,7 @@ These test `_shared` directly rather than through a family, which is the point
 of the module existing: `chromatic` and `scales` each cover their own use of
 these helpers incidentally, but only from one side. A family test cannot show
 that the parameter reader says "arpeggios" when arpeggios asks it to, or that
-`apply_direction` is genuinely indifferent to what it is ordering — and those
-are the two properties tasks B7 and B8 are about to depend on.
+`apply_direction` is genuinely indifferent to what it is ordering.
 
 `apply_direction`'s turnaround has a test of its own here for the reason the
 plan singles it out: the last element is played once, and the slice that says
@@ -14,29 +13,18 @@ so is the easiest line in this codebase to write backwards.
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 
 from melete.families._shared import (
     Parameters,
     apply_direction,
-    boxed,
     directed_by_cell,
-    octaves,
-    string_set,
     there_and_back,
 )
-from melete.instrument import PROFILES, hand_span
-
-BASS6 = PROFILES["bass6"]
-
-#: What a `positional` caller passes as the axes it could not satisfy (§13).
-AXIS_LIST = "root, scale_type, range_octaves and string_set"
 
 #: A family that does not exist, named to prove the reader is parameterized
-#: rather than quietly hard-coded to one of the two families that use it.
-AXES = ("root", "direction", "scale_type")
+#: rather than quietly hard-coded to one of the families that use it.
+AXES = ("root", "traversal", "scale_type")
 
 
 def reader(family: str = "arpeggios", **values: object) -> Parameters:
@@ -57,7 +45,7 @@ def test_a_present_parameter_is_returned_untouched() -> None:
 def test_a_missing_parameter_names_the_family_the_axis_and_every_axis() -> None:
     with pytest.raises(ValueError, match=r"^arpeggios: parameter 'root' is required") as caught:
         reader().value("root")
-    assert str(caught.value).endswith("the family's axes are ['root', 'direction', 'scale_type']")
+    assert str(caught.value).endswith("the family's axes are ['root', 'traversal', 'scale_type']")
 
 
 def test_the_family_name_comes_from_the_caller() -> None:
@@ -70,24 +58,24 @@ def test_the_family_name_comes_from_the_caller() -> None:
 
 
 def test_an_identifier_in_the_registry_is_returned() -> None:
-    assert reader(direction="up_down").identifier("direction") == "up_down"
+    assert reader(traversal="positional").identifier("traversal") == "positional"
 
 
 def test_an_unknown_identifier_lists_the_accepted_values() -> None:
-    with pytest.raises(ValueError, match=r"arpeggios: unknown direction 'sideways'.*up_down"):
-        reader(direction="sideways").identifier("direction")
+    with pytest.raises(ValueError, match=r"arpeggios: unknown traversal 'sideways'.*positional"):
+        reader(traversal="sideways").identifier("traversal")
 
 
 def test_a_non_string_identifier_is_rejected() -> None:
-    with pytest.raises(ValueError, match=r"arpeggios: unknown direction 3;"):
-        reader(direction=3).identifier("direction")
+    with pytest.raises(ValueError, match=r"arpeggios: unknown traversal 3;"):
+        reader(traversal=3).identifier("traversal")
 
 
 def test_an_identifier_is_checked_against_its_own_axis() -> None:
-    # `dorian` is a registry identifier, but not one of `direction`'s. Each axis
+    # `dorian` is a registry identifier, but not one of `traversal`'s. Each axis
     # is a separate namespace and the reader never searches across them.
-    with pytest.raises(ValueError, match=r"unknown direction 'dorian'"):
-        reader(direction="dorian").identifier("direction")
+    with pytest.raises(ValueError, match=r"unknown traversal 'dorian'"):
+        reader(traversal="dorian").identifier("traversal")
 
 
 def test_an_integer_axis_is_returned() -> None:
@@ -110,114 +98,13 @@ def test_a_missing_axis_is_reported_before_its_type_is() -> None:
     # missing-axis error and never a type complaint about `None`.
     with pytest.raises(ValueError, match=r"parameter 'root' is required"):
         reader().integer("root")
-    with pytest.raises(ValueError, match=r"parameter 'direction' is required"):
-        reader().identifier("direction")
+    with pytest.raises(ValueError, match=r"parameter 'traversal' is required"):
+        reader().identifier("traversal")
 
 
 def test_extra_parameters_are_ignored_rather_than_rejected() -> None:
     # §8's rhythm axes travel in the same dictionary as §7's family axes.
     assert reader(root=33, subdivision="eighth").integer("root") == 33
-
-
-# --------------------------------------------------------------------------
-# `boxed`: `positional` means a position, or it means nothing (issue #57)
-# --------------------------------------------------------------------------
-
-
-def test_a_layout_that_fits_the_hand_is_returned() -> None:
-    # Three degrees of A Ionian across the E and A strings: every one of them
-    # lies under a hand at the fifth fret.
-    places = boxed(BASS6, [33, 35, 37], (1, 2), "scales", AXIS_LIST)
-    assert hand_span(fret for _string, fret in places) <= BASS6.position_span
-
-
-def test_content_wider_than_a_position_raises_rather_than_reporting_success() -> None:
-    # An octave apart on one string is twelve frets of neck. The nearest layout
-    # is the *least bad* one, and calling that "positional" is the mislabelling
-    # issue #57 exists to stop.
-    with pytest.raises(ValueError, match=r"one position") as raised:
-        boxed(BASS6, [35, 47], (2,), "scales", AXIS_LIST)
-
-    message = str(raised.value)
-    assert message.startswith("scales:")
-    assert "12 frets" in message
-    assert AXIS_LIST in message
-
-
-def test_an_open_string_does_not_widen_the_position() -> None:
-    # A minor pentatonic from the open A string: frets 3, 5 and 7 are one
-    # position and the open root is sounded without the fretting hand at all.
-    places = boxed(BASS6, [33, 36, 38, 40, 43, 45], (2, 3), "scales", AXIS_LIST)
-    assert places == [(2, 0), (2, 3), (2, 5), (2, 7), (3, 5), (3, 7)]
-
-
-def test_the_position_is_the_profile_s_and_not_a_constant_of_this_module() -> None:
-    # A hand covers as many frets as the instrument's spacing allows, so the
-    # bound is read from the profile the exercise is laid out on.
-    narrow = replace(BASS6, position_span=1)
-    with pytest.raises(ValueError, match=r"against a position of 1"):
-        boxed(narrow, [33, 35, 37], (1, 2), "scales", AXIS_LIST)
-
-
-# --------------------------------------------------------------------------
-# `string_set`: the strings the exercise is laid across, validated not repaired
-# --------------------------------------------------------------------------
-#
-# Epic #72 retired `string_set` (and `octaves`) from every family — extent is
-# emergent and coverage spans the whole instrument — so no family exercises these
-# helpers any more. They are unit-tested here at their source until the E2 cleanup
-# (mnemosys-project/melete#161) deletes both the helpers and these tests together.
-
-
-def test_a_string_set_must_be_a_non_empty_sequence() -> None:
-    read = Parameters("arpeggios", ("string_set",), {"string_set": 2})
-    with pytest.raises(ValueError, match=r"string_set must be a non-empty sequence"):
-        string_set(read, BASS6)
-
-
-def test_an_empty_string_set_is_rejected() -> None:
-    read = Parameters("arpeggios", ("string_set",), {"string_set": ()})
-    with pytest.raises(ValueError, match=r"string_set must be a non-empty sequence"):
-        string_set(read, BASS6)
-
-
-def test_a_string_set_holds_only_integer_indices() -> None:
-    read = Parameters("arpeggios", ("string_set",), {"string_set": (0, "1")})
-    with pytest.raises(ValueError, match=r"string_set must hold integer string indices"):
-        string_set(read, BASS6)
-
-
-def test_a_string_set_must_be_strictly_ascending() -> None:
-    read = Parameters("arpeggios", ("string_set",), {"string_set": (2, 1)})
-    with pytest.raises(ValueError, match=r"strictly ascending"):
-        string_set(read, BASS6)
-
-
-def test_a_string_set_must_lie_on_the_profile() -> None:
-    read = Parameters("arpeggios", ("string_set",), {"string_set": (0, 99)})
-    with pytest.raises(ValueError, match=r"is off profile"):
-        string_set(read, BASS6)
-
-
-def test_a_valid_string_set_is_returned_as_a_tuple() -> None:
-    read = Parameters("arpeggios", ("string_set",), {"string_set": (0, 1, 2, 3)})
-    assert string_set(read, BASS6) == (0, 1, 2, 3)
-
-
-# --------------------------------------------------------------------------
-# `octaves`: §7's enumerated `range_octaves` count (retired with `string_set`)
-# --------------------------------------------------------------------------
-
-
-def test_octaves_reads_an_enumerated_count() -> None:
-    read = Parameters("scales", ("range_octaves",), {"range_octaves": 2})
-    assert octaves(read) == 2
-
-
-def test_octaves_rejects_a_count_outside_the_range() -> None:
-    read = Parameters("scales", ("range_octaves",), {"range_octaves": 5})
-    with pytest.raises(ValueError, match=r"range_octaves must be one of"):
-        octaves(read)
 
 
 # --------------------------------------------------------------------------

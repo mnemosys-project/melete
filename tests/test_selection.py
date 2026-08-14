@@ -63,28 +63,19 @@ def seeded(seed: int) -> Random:
 
 INSTRUMENT = '[instrument]\nprofile = "bass6"\n'
 
-#: Four-string subsets of a six-string bass, which is what most of these pools
-#: are laid across: wide enough for a two-octave scale, narrow enough that a
-#: traversal has something to disagree with.
-FOUR_STRING_SETS = "[[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5]]"
-
 #: One axis per line, as TOML values. Each pool function below applies the
 #: overrides its test needs, so a test names only the axis it is about.
 SCALES_AXES: dict[str, str] = {
     "roots": '"all"',
     "scale_types": '["ionian", "dorian", "phrygian", "lydian", "mixolydian", "aeolian"]',
     "traversals": '["positional"]',
-    "string_sets": FOUR_STRING_SETS,
     "patterns": '["straight", "thirds", "groups_of_3"]',
-    "octaves": "[1, 2]",
-    "directions": '["up", "down", "up_down"]',
 }
 
 CHROMATIC_AXES: dict[str, str] = {
     "permutations": "[[1, 2, 3, 4], [1, 3, 2, 4], [2, 1, 4, 3], [4, 3, 2, 1]]",
     "start_strings": "[0, 1, 2]",
     "start_frets": "[1, 3, 5, 7]",
-    "directions": '["up", "down", "up_down"]',
     "string_traversals": '["adjacent"]',
     "shifts": '["none", "fret_per_cycle"]',
     "spans": "[3, 4]",
@@ -94,11 +85,7 @@ ARPEGGIOS_AXES: dict[str, str] = {
     "roots": '"all"',
     "qualities": '["maj", "min", "maj7", "min7", "dom7"]',
     "inversions": '["root", "first", "second"]',
-    "traversals": '["positional"]',
-    "string_sets": FOUR_STRING_SETS,
     "patterns": '["straight", "broken"]',
-    "octaves": "[1, 2]",
-    "directions": '["up", "down", "up_down"]',
 }
 
 INTERVALS_AXES: dict[str, str] = {
@@ -107,8 +94,6 @@ INTERVALS_AXES: dict[str, str] = {
     "roots": '"all"',
     "scale_types": '["ionian", "dorian", "aeolian"]',
     "string_skips": '["0", "1"]',
-    "string_sets": FOUR_STRING_SETS,
-    "directions": '["up", "down", "up_down"]',
     "patterns": '["ascending_pairs", "descending_pairs", "alternating"]',
 }
 
@@ -181,15 +166,12 @@ def printed_span(config: Config, spec: ExerciseSpec) -> int:
 
 
 #: One realizable `scales` specification, for the tests that need a history
-#: entry rather than a draw. A1 Dorian, boxed across the four lowest strings.
+#: entry rather than a draw. A positional A Dorian journey.
 SPEC_PARAMS: dict[str, AxisValue] = {
     "root": 33,
     "scale_type": "dorian",
     "traversal": "positional",
-    "string_set": (0, 1, 2, 3),
     "pattern": "straight",
-    "range_octaves": 2,
-    "direction": "up",
     "accent_pattern": "none",
     "note_value_pattern": "straight",
 }
@@ -548,11 +530,11 @@ def test_an_over_constrained_pool_names_what_could_not_be_satisfied() -> None:
 def test_an_exercise_over_max_notes_is_resampled_and_then_reported() -> None:
     """Spec §7, decision #17: a cycle is bounded, never truncated.
 
-    One octave, so that the *reported* failure is the length one: a two-octave
-    positional scale is refused for its span before its length is ever counted
-    (issue #57), and the message quotes the most common reason.
+    A positional journey fits one hand, so its span passes the gate and the
+    *reported* failure is the length one — the outer-to-outer scale is far longer
+    than four notes — and the message quotes the most common reason.
     """
-    config = scales_config(session=f"{shape(scales=1)}max_notes = 4\n", octaves="[1]")
+    config = scales_config(session=f"{shape(scales=1)}max_notes = 4\n")
 
     with pytest.raises(SelectionError) as raised:
         select(config, [], seeded(24))
@@ -688,15 +670,6 @@ PER_SESSION = 2
 #: avoid a value, and uniformity is asserted everywhere.
 ROOMY_AXES = ("root", "scale_type")
 
-#: The string sets the simulation draws from. Each includes the lowest
-#: instrument string, because the root now anchors there (§5, §8, #156): a set
-#: that omitted string 0 would place the exercise beside the anchored root, and
-#: the resulting validity-gate rejections — a transitional artifact that E2
-#: removes with the `string_set` axis itself — would bias which roots survive
-#: and manufacture clumping the weighting never produced. Anchored coherently,
-#: the coverage weighting is measured on its own terms.
-SIM_STRING_SETS = "[[0, 1, 2, 3], [0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]]"
-
 #: Every axis the `scales` pool above varies, §7's and §8's alike.
 MEASURED_AXES = (
     "root",
@@ -709,7 +682,7 @@ MEASURED_AXES = (
 
 def simulate(seed: int) -> dict[str, list[list[str]]]:
     """200 sessions under one seed: the values each axis used, session by session."""
-    config = scales_config(session=shape(scales=PER_SESSION), string_sets=SIM_STRING_SETS)
+    config = scales_config(session=shape(scales=PER_SESSION))
     rng = seeded(seed)
     history: list[list[ExerciseSpec]] = []
     used: dict[str, list[list[str]]] = {axis: [] for axis in MEASURED_AXES}

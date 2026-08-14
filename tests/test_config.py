@@ -17,7 +17,7 @@ verbatim:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
@@ -30,9 +30,6 @@ from melete.config import (
     load_string,
 )
 from melete.families import REGISTRY
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 DROP_D = '[instrument]\nprofile = { name = "drop_d", tuning = [26, 33, 38, 43], fret_count = 20 }\n'
 BASS4 = '[instrument]\nprofile = "bass4"\n'
@@ -126,14 +123,14 @@ def test_the_spec_example_config_loads() -> None:
         'scale_types = ["ionian", "dorian", "phrygian", "major_pentatonic", "blues"]\n'
         'patterns = ["straight", "thirds", "groups_of_3", "groups_of_4"]\n'
         'traversals = ["positional", "three_note_per_string"]\n'
-        "octaves = [1, 2]\ntempo = [80, 100]\n"
+        "tempo = [80, 100]\n"
         "\n[pool.rhythm]\n"
         'accent_patterns = ["none", "every_3"]\n'
         'note_value_patterns = ["straight", "long_short"]\n'
     )
     assert cfg.session.shape == {"chromatic": 1, "scales": 2, "arpeggios": 1, "intervals": 1}
     assert cfg.pool["scales"].values["root"] == tuple(range(12))
-    assert cfg.pool["scales"].values["range_octaves"] == (1, 2)
+    assert cfg.pool["scales"].values["traversal"] == ("positional", "three_note_per_string")
     assert cfg.pool["scales"].tempo == (80, 100)
     assert cfg.rhythm.values["accent_pattern"] == ("none", "every_3")
 
@@ -540,12 +537,6 @@ def test_a_root_outside_the_octave_is_rejected() -> None:
     assert "pool.scales.roots[0]" in str(exc.value)
 
 
-def test_octaves_are_bounded_by_the_spec() -> None:
-    with pytest.raises(ConfigError) as exc:
-        load_string("[pool.scales]\noctaves = [4]")
-    assert "pool.scales.octaves[0]" in str(exc.value)
-
-
 def test_intervals_span_a_second_to_a_tenth() -> None:
     cfg = load_string("[pool.intervals]\nintervals = [2, 10]")
     assert cfg.pool["intervals"].values["interval"] == (2, 10)
@@ -555,8 +546,8 @@ def test_intervals_span_a_second_to_a_tenth() -> None:
 
 def test_a_non_integer_range_value_is_rejected() -> None:
     with pytest.raises(ConfigError) as exc:
-        load_string('[pool.scales]\noctaves = ["two"]')
-    assert "pool.scales.octaves[0]" in str(exc.value)
+        load_string('[pool.scales]\nroots = ["two"]')
+    assert "pool.scales.roots[0]" in str(exc.value)
 
 
 def test_start_strings_are_bounded_by_the_configured_profile() -> None:
@@ -584,12 +575,12 @@ def test_spans_are_bounded_by_the_string_count() -> None:
 
 
 def test_a_range_axis_accepts_all() -> None:
-    cfg = load_string('[pool.scales]\noctaves = "all"')
-    assert cfg.pool["scales"].values["range_octaves"] == (1, 2, 3)
+    cfg = load_string('[pool.scales]\nroots = "all"')
+    assert cfg.pool["scales"].values["root"] == tuple(range(12))
 
 
 # --------------------------------------------------------------------------
-# Permutations and string sets — structure, not an enumerated vocabulary
+# Permutations — structure, not an enumerated vocabulary
 # --------------------------------------------------------------------------
 
 
@@ -621,56 +612,53 @@ def test_a_permutation_entry_must_be_an_integer() -> None:
     assert "pool.chromatic.permutations[0][0]" in str(exc.value)
 
 
-def test_string_sets_are_ascending_subsets_of_the_strings() -> None:
-    cfg = load_string("[pool.scales]\nstring_sets = [[0, 1, 2], [0, 2, 4]]")
-    assert cfg.pool["scales"].values["string_set"] == ((0, 1, 2), (0, 2, 4))
+# --------------------------------------------------------------------------
+# The retired geometry axes — unknown keys since epic #72 removed them (§8)
+# --------------------------------------------------------------------------
 
 
-def test_a_string_set_must_be_a_list() -> None:
+def test_direction_key_is_now_unknown() -> None:
+    # Direction is always up-and-down and is no longer sampled (spec §8): the
+    # `directions` key is rejected like any other misspelling.
     with pytest.raises(ConfigError) as exc:
-        load_string("[pool.scales]\nstring_sets = [3]")
-    assert "pool.scales.string_sets[0]" in str(exc.value)
+        load_string('[pool.scales]\ndirections = "all"')
+    assert "directions" in str(exc.value)
 
 
-def test_a_string_set_entry_must_be_an_integer() -> None:
+def test_string_set_key_is_now_unknown() -> None:
+    # Coverage is the whole instrument now (spec §4/§5); `string_sets` is gone.
     with pytest.raises(ConfigError) as exc:
-        load_string('[pool.scales]\nstring_sets = [["0", 1]]')
-    assert "pool.scales.string_sets[0][0]" in str(exc.value)
+        load_string("[pool.scales]\nstring_sets = [[0, 1, 2]]")
+    assert "string_sets" in str(exc.value)
 
 
-def test_an_empty_string_set_is_rejected() -> None:
+def test_octaves_key_is_now_unknown() -> None:
+    # Octave count is emergent from the outer-to-outer journey, not sampled.
     with pytest.raises(ConfigError) as exc:
-        load_string("[pool.scales]\nstring_sets = [[]]")
-    assert "pool.scales.string_sets[0]" in str(exc.value)
+        load_string("[pool.scales]\noctaves = [1, 2]")
+    assert "octaves" in str(exc.value)
 
 
-def test_a_string_set_is_bounded_by_the_profile() -> None:
+def test_arpeggio_traversal_key_is_now_unknown() -> None:
+    # Arpeggios have one seed-shape layout in v1, so `traversal` is removed for
+    # this family (spec §8) — but scales keep it (below).
     with pytest.raises(ConfigError) as exc:
-        load_string(BASS4 + "[pool.scales]\nstring_sets = [[0, 1, 4]]")
-    assert "pool.scales.string_sets[0][2]" in str(exc.value)
-    assert "bass4" in str(exc.value)
+        load_string('[pool.arpeggios]\ntraversals = ["positional"]')
+    assert "traversals" in str(exc.value)
 
 
-def test_a_string_set_must_be_strictly_ascending() -> None:
-    # Same reasoning as decision #22: the index order is the instrument.
-    with pytest.raises(ConfigError) as exc:
-        load_string("[pool.scales]\nstring_sets = [[2, 1]]")
-    assert "pool.scales.string_sets[0][1]" in str(exc.value)
-    assert "ascending" in str(exc.value)
+def test_scales_still_read_traversal() -> None:
+    # Scales carry two genuine fingering styles, so `traversal` survives there.
+    cfg = load_string('[pool.scales]\ntraversals = ["positional", "three_note_per_string"]')
+    assert cfg.pool["scales"].values["traversal"] == ("positional", "three_note_per_string")
 
 
-def test_a_repeated_string_is_not_a_set() -> None:
-    with pytest.raises(ConfigError) as exc:
-        load_string("[pool.scales]\nstring_sets = [[1, 1]]")
-    assert "ascending" in str(exc.value)
-
-
-def test_string_sets_have_no_all_shorthand() -> None:
-    # Every non-empty subset of six strings is 63 values; an error message
-    # listing them would not be an error message anyone could read.
-    with pytest.raises(ConfigError) as exc:
-        load_string('[pool.scales]\nstring_sets = "all"')
-    assert "pool.scales.string_sets" in str(exc.value)
+def test_the_shipping_config_loads() -> None:
+    # The migrated shipping config still loads cleanly (guards the removed-axis
+    # surprise: a stale `directions`/`string_sets`/`octaves` key would raise).
+    shipping = Path(__file__).parents[1] / "examples" / "config.toml"
+    cfg = load(shipping)
+    assert cfg.instrument.name == "bass6"
 
 
 # --------------------------------------------------------------------------
@@ -682,16 +670,14 @@ def test_every_chromatic_axis_loads() -> None:
     cfg = load_string(
         "[pool.chromatic]\n"
         'permutations = "all"\nstart_strings = [0]\nstart_frets = [0]\n'
-        'directions = "all"\nstring_traversals = "all"\nshifts = "all"\nspans = [2]\n'
+        'string_traversals = "all"\nshifts = "all"\nspans = [2]\n'
     )
     assert set(cfg.pool["chromatic"].values) == {axis.name for axis in _AXES_BY_FAMILY["chromatic"]}
 
 
 def test_every_arpeggio_axis_loads() -> None:
     cfg = load_string(
-        "[pool.arpeggios]\n"
-        'roots = "all"\nqualities = "all"\ninversions = "all"\ntraversals = "all"\n'
-        'string_sets = [[0, 1, 2]]\npatterns = "all"\noctaves = [1]\ndirections = "all"\n'
+        '[pool.arpeggios]\nroots = "all"\nqualities = "all"\ninversions = "all"\npatterns = "all"\n'
     )
     assert set(cfg.pool["arpeggios"].values) == {axis.name for axis in _AXES_BY_FAMILY["arpeggios"]}
 
@@ -700,7 +686,7 @@ def test_every_interval_axis_loads() -> None:
     cfg = load_string(
         "[pool.intervals]\n"
         'intervals = "all"\ncontexts = "all"\nroots = "all"\nscale_types = "all"\n'
-        'string_skips = "all"\nstring_sets = [[0, 1]]\ndirections = "all"\npatterns = "all"\n'
+        'string_skips = "all"\npatterns = "all"\n'
     )
     assert set(cfg.pool["intervals"].values) == {axis.name for axis in _AXES_BY_FAMILY["intervals"]}
 
@@ -714,16 +700,6 @@ def test_pools_are_declared_for_exactly_the_registry_families() -> None:
     assert set(_AXES_BY_FAMILY) == set(vocabulary.accepted("family"))
 
 
-#: The geometry axes epic #72 retires. A family stops reading its geometry axis
-#: in its own rewrite task (chromatic's `direction` in D1, scales' and arpeggios'
-#: sets in B2/C2, etc.), and E2 then removes the axis from every pool. In that
-#: window a pool still *samples* an axis its family no longer *reads* — a
-#: carried-but-unread key, the existing contract — so the exact-equality
-#: invariant relaxes to "the pool may over-sample only these retiring axes" until
-#: E2 restores equality by dropping them.
-_RETIRING_GEOMETRY_AXES = {"direction", "string_set", "range_octaves", "traversal"}
-
-
 def test_the_pool_samples_exactly_the_axes_each_family_requires() -> None:
     # The requirement is *derived* from the family, never restated here: the
     # family module owns the list of axes it reads, and a copy in this test
@@ -733,13 +709,14 @@ def test_the_pool_samples_exactly_the_axes_each_family_requires() -> None:
     # omitted `root` and `scale_type`, so every specification the selector
     # could draw from it was missing an axis the family requires, and the
     # failure surfaced in the selector rather than here.
+    #
+    # Epic #72 (Task E2) removed the three geometry axes and arpeggios' redundant
+    # `traversal`, so the pool and the family now agree exactly: this is a strict
+    # equality again, with no retiring-axis relaxation to carry (spec §8).
     for family, entry in REGISTRY.items():
         pool = {axis.name for axis in _AXES_BY_FAMILY[family]}
         read = set(entry.axes)
-        # Every axis the family reads must be sampled (the realizability guard).
-        assert read <= pool, family
-        # Any axis the pool samples beyond that must be one epic #72 is retiring.
-        assert pool - read <= _RETIRING_GEOMETRY_AXES, family
+        assert pool == read, family
 
 
 def test_no_axis_key_is_declared_twice_within_a_family() -> None:

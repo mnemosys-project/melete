@@ -27,7 +27,6 @@ EXPECTED_AXES = {
     "quality",
     "traversal",
     "pattern",
-    "direction",
     "string_traversal",
     "shift",
     "accent_pattern",
@@ -158,11 +157,6 @@ def test_cover_page_sentence_reads_as_prose() -> None:
         display("traversal", "three_note_per_string"),
     ]
     assert ", ".join(parts) == "Dorian, three-notes-per-string"
-
-
-def test_direction_reads_as_a_direction() -> None:
-    assert display("direction", "up") == "ascending"
-    assert display("direction", "down") == "descending"
 
 
 def test_inversions_display_in_full() -> None:
