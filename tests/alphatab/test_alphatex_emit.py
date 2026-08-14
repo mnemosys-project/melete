@@ -453,12 +453,51 @@ def test_emit_score_has_no_section_marker() -> None:
 def test_the_book_lays_out_one_system_per_exercise() -> None:
     # Each exercise its own system, so the `\section` titles can't overprint
     # (melete#138): the `\track` systemslayout carries one bar count per exercise,
-    # in order. sample_score is 2 bars; dorian and chromatic are 1 bar each.
+    # in order. sample_score is 2 bars; dorian and chromatic are 1 bar each — all
+    # within one system (<= BARS_PER_SYSTEM), so none of them wrap.
     text = emit_book(
         [sample_score(), dorian_score(), chromatic_score()],
         Cover(date="2026-08-12", instrument="bass6"),
     )
     assert '\\track "" { systemslayout 2 1 1 }' in text
+
+
+def _n_bar_score(n_bars: int, title: str = "journey") -> Score:
+    """An `n_bars`-bar 4/4 exercise: `4 * n_bars` quarter notes, one per beat.
+
+    A journey longer than a single system, so its systemslayout has to wrap. The
+    quarters divide the 4/4 bars evenly, so `bar()` yields exactly `n_bars` bars.
+    """
+    return Score(
+        title=title,
+        instruction="",
+        instrument=_BASS6,
+        time_signature=(4, 4),
+        tempo_range=(80, 100),
+        voice=[_n(33, 2, _QUARTER) for _ in range(4 * n_bars)],
+        key=None,
+        params={"family": "chromatic"},
+    )
+
+
+def test_a_long_exercise_wraps_into_four_bar_systems() -> None:
+    # A journey longer than one system is split into systems of BARS_PER_SYSTEM
+    # bars with the remainder last (melete#175): 6 bars -> `4 2`, so alphaTab wraps
+    # the exercise across systems instead of cramming every bar onto one line.
+    text = emit_book([_n_bar_score(6)], Cover(date="2026-08-12", instrument="bass6"))
+    assert f'\\track "" {{ systemslayout {emit.BARS_PER_SYSTEM} 2 }}' in text
+
+
+def test_each_exercise_wraps_but_still_starts_a_fresh_system() -> None:
+    # Each exercise's own bars are wrapped, and every exercise still begins a new
+    # system at its boundary so `\section` titles never overprint (the melete#138
+    # goal, preserved): a 6-bar then a 2-bar exercise emit `4 2 2`, the per-exercise
+    # chunk lists concatenated in order — never `4 4` fusing across the boundary.
+    text = emit_book(
+        [_n_bar_score(6, "a"), _n_bar_score(2, "b")],
+        Cover(date="2026-08-12", instrument="bass6"),
+    )
+    assert '\\track "" { systemslayout 4 2 2 }' in text
 
 
 def test_the_systems_layout_precedes_the_bar_stream() -> None:
