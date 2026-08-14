@@ -1,4 +1,4 @@
-"""`arpeggios` — chord tones (spec §7, MNEMOSYS A1, A2).
+"""`arpeggios` — chord tones (spec §6, §7, MNEMOSYS A1, A2).
 
 `generate` is a pure function: no I/O, no randomness, no clock. The selector
 (§9) chooses the parameters and this module realizes them, which is what makes
@@ -8,26 +8,37 @@ of the machinery around it. It therefore imports neither `selection` nor
 
 ## What one exercise is
 
-One exercise is **one complete cycle of the pattern** (§7) and is never
-truncated. Here the cycle is the chord's tones across `range_octaves`, closing
-on the final octave, reordered by `pattern` and then ordered by `direction`.
-One octave of a seventh chord is five notes, not four: `scales` closes on its
-octave for the same reason, and an arpeggio that stops on the seventh reads as
-unfinished rather than as economical.
+One exercise is the chord's up-and-down *journey* across the instrument (spec
+§5): the tones ascend from the root on the lowest string, laid out by the
+quality's canonical seed shape, until the shape reaches the opposite outer
+string, and then return without replaying the turnaround. Extent and octave
+count are emergent — they fall out of reaching the top string — rather than a
+sampled target, exactly as `scales` and every other family now compute their
+geometry (spec §8). Direction is never sampled: the journey is always up and
+down (`journey.updown`).
 
 ## Which notes, then where: two passes, in that order
 
 The pitch content comes from `theory.chord_pitches` and nothing here
 reimplements chord maths. The family's own work is the second half of §6's
-promise — **it decides where each note is played**, not only which note it is.
-
-Positions are assigned to the *ascending chord tones*, once, before `pattern`
-and `direction` are applied, exactly as `scales` assigns them to its degrees. A
-pattern like `numeric_1353` plays most tones three times, and a chord whose
-tones moved around under the hand between repetitions would be a different
-exercise every time it came round.
+promise — **it decides where each note is played**, not only which note it is —
+and it delegates that placement to `arpeggio_shapes.shape_places`, which tiles
+one canonical seed shape per quality up the strings. Positions are assigned to
+the *ascending chord tones*, once, before `pattern` is applied: a pattern like
+`numeric_1353` plays most tones three times, and a chord whose tones moved
+around under the hand between repetitions would be a different exercise every
+time it came round.
 
 ## The axes, and what this module decided about them
+
+**Arpeggios have one layout in v1 — the seed shape.** The `traversal` axis is
+gone (spec §6, §8): its three former values (`positional`, `across_strings`,
+`single_string`) would all now route through `shape_places` to identical output,
+so keeping it would be a no-op axis §9's coverage accounting could not tell
+apart. The single/two-string modes are deferred (spec §13). The
+`direction`, `string_set` and `range_octaves` axes are gone for the same reason
+they left every family: direction is always up-and-down, the string set is the
+whole instrument outer-to-outer, and the octave count is emergent.
 
 **`inversion` is a registry identifier, not a rotation count.** §7 writes the
 column as root/first/second/third, `vocabulary` carries those four identifiers
@@ -37,40 +48,14 @@ identifier, so that is what arrives here. The bare integer
 `INVERSIONS` is the one place the two meet: a value's *position* in it is the
 rotation count. An inversion the chord cannot support — a triad's third — is
 rejected by `theory` and the refusal is allowed through unwrapped, because its
-message already names the quality and the range it accepted. Wrapping round to
-root position instead would engrave the wrong chord convincingly (§13).
+message already names the quality and the range it accepted.
 
-**`traversal` decides how the chord is spread over the strings.**
-`positional` keeps the hand in one place, minimizing total fret travel across
-the whole cycle and **raising when the chord will not fit under one hand**
-(`_shared.boxed`, shared with `scales`; issue #57) — two octaves over four
-strings puts the upper octave up the neck, which is a shift and not a position,
-and a label a player cannot trust is worse than a draw §9 has to replace.
-`across_strings` is
-the arpeggio's own layout: each successive tone moves to the next string in
-`string_set` **where the string set allows it**, which is the sweep-picked
-shape a player actually uses. A tone the next string cannot reach — a fifth
-that would need a negative fret there — stays where it is rather than forcing
-the shape, and once the strings run out the remaining tones continue up the
-top string of the set. Neither is a silent repair: both keep every note on a
-string that can sound it, and a tone no string in the set can sound raises.
-`single_string` needs exactly one string, and a wider set is a contradiction
-between two axes rather than a hard specification.
-
-**`pattern` shapes the sequence and `direction` then orders it**, the same way
-round as in `scales`, so a descending figure is the retrograde of the ascending
-one rather than a second, mirrored implementation of every figure. Each pattern
-is a window of tone offsets slid along the chord: `numeric_1353` is
-`(0, 1, 2, 1)`, so it emits 1-3-5-3, 3-5-7-5; `broken` is `(0, 2)`, which skips
-a tone and comes back for it.
-
-`sweep_ordered` is the three-tone window `(0, 1, 2)` — the arpeggio rolled up
-in overlapping three-note sweeps, which is how sweep picking is drilled. The
-other available reading, "order the notes so the picking hand never returns to
-a string it has left", was rejected: on every layout this family produces the
-strings already ascend with the pitch, so that reading would make
-`sweep_ordered` an alias of `straight` — two values of one axis naming a single
-exercise, which §9's coverage accounting could not tell apart.
+**`pattern` shapes the sequence and the journey then orders it**, the same way
+round as in `scales`. Each pattern is a window of tone offsets slid along the
+ascending chord: `numeric_1353` is `(0, 1, 2, 1)`, so it emits 1-3-5-3, 3-5-7-5;
+`broken` is `(0, 2)`, which skips a tone and comes back for it. `sweep_ordered`
+is the three-tone window `(0, 1, 2)` — the arpeggio rolled up in overlapping
+three-note sweeps, which is how sweep picking is drilled.
 
 **`finger` is left unspecified.** §6 makes fingering first class because in
 *chromatic* permutation work the fingering is the exercise. Here the position
@@ -86,19 +71,12 @@ nothing, because it already holds the root and the quality; *not* stating it
 would cost every note on the sheet its spelling, silently, because a key-less
 Score still constructs and still engraves.
 
-`dim`, `dim7` and `aug` imply symmetric parents and therefore land in §10a's
-tier 3, which prints no signature and spells by direction: C dim7 is written
-`C D# F# A` rather than the functional `C Eb Gb Bbb`. That is a stated boundary
-of the model rather than a defect here — a fully diminished seventh needs a
-doubly diminished seventh above the root and no seven-note scale supplies one,
-so there is no parent to point at. §10a records the whole argument.
-
 ## Running off the neck
 
-A specification that cannot be realized on the profile raises, naming the axes
-that could not be satisfied. It is never clamped to fit — a clamped exercise is
-a plausible-looking sheet that is not the one the selector drew, and §9's
-validity gate exists precisely to resample this case.
+A specification that cannot be laid out as a full journey to the top string
+raises, naming the axes that could not be satisfied. It is never clamped to fit
+— a clamped exercise is a plausible-looking sheet that is not the one the
+selector drew, and §9's validity gate exists precisely to resample this case.
 """
 
 from __future__ import annotations
@@ -107,16 +85,9 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory, vocabulary
-from melete.families._shared import (
-    Parameters,
-    boxed,
-    directed_by_cell,
-    layout_hints,
-    octaves,
-    realizable,
-    string_set,
-    windowed,
-)
+from melete.families._shared import Parameters, layout_hints, realizable, windowed
+from melete.families.arpeggio_shapes import shape_places
+from melete.families.journey import updown
 from melete.layout import Lever
 from melete.score import Note, Score
 
@@ -136,10 +107,6 @@ _FAMILY = "arpeggios"
 #: overrides it per family through `[pool.arpeggios] tempo`.
 #:
 #: The demand here is comparable to `scales`, so the range is the same one.
-#: The original 80-100 was reasoned from categories rather than from an
-#: instrument and came out too slow to be useful — it is where the author warms
-#: up, not where he practices. §7 carries that reasoning; the number is
-#: declared here.
 DEFAULT_TEMPO_RANGE = (80, 140)
 
 #: The un-modified reading: one note per beat in common time. `rhythm.py` (§8)
@@ -151,17 +118,16 @@ NOTE_DURATION = Fraction(1, 4)
 
 INSTRUCTION = "Name each chord tone as it sounds; keep the string crossings even."
 
-#: §7's axis columns. Named here so a missing parameter can list what the
-#: family expected rather than only what it did not find.
+#: §7's axis columns this family reads, after epic #72 retired the geometry axes
+#: (`direction`, `string_set`, `range_octaves`) and the now-redundant `traversal`
+#: (arpeggios have one layout in v1 — the seed shape). Named here so a missing
+#: parameter can list what the family expected rather than only what it did not
+#: find.
 AXES = (
     "root",
     "quality",
     "inversion",
-    "traversal",
-    "string_set",
     "pattern",
-    "range_octaves",
-    "direction",
 )
 
 #: §7's `inversion` column, and the one place its identifiers meet the integer
@@ -170,22 +136,13 @@ AXES = (
 #: no third inversion — so nothing is enumerated twice.
 INVERSIONS: tuple[str, ...] = ("root", "first", "second", "third")
 
-_POSITIONAL = "positional"
-_ACROSS_STRINGS = "across_strings"
-_SINGLE_STRING = "single_string"
 _STRAIGHT = "straight"
-
-#: The subset of §7's `traversal` column this family realizes. `vocabulary`
-#: carries the union of every family's traversals in one axis, so the family
-#: states which of them it can lay out — `three_note_per_string` and
-#: `octave_per_string` belong to `scales`.
-_TRAVERSALS = (_POSITIONAL, _ACROSS_STRINGS, _SINGLE_STRING)
 
 #: Each pattern as the tone offsets of one window, slid one chord tone at a
 #: time along the ascending chord. `straight` is the identity window.
 #:
-#: The widest window spans three tones and the shortest cycle this family can
-#: produce is one octave of a triad, which is four notes, so no pattern can be
+#: The widest window spans three tones and the shortest journey this family can
+#: produce reaches the top string over several octaves, so no pattern can be
 #: starved of tones to slide along.
 _PATTERN_WINDOWS: dict[str, tuple[int, ...]] = {
     _STRAIGHT: (0,),
@@ -194,113 +151,77 @@ _PATTERN_WINDOWS: dict[str, tuple[int, ...]] = {
     "sweep_ordered": (0, 1, 2),
 }
 
-#: The axes a `positional` layout names when a tone is out of reach (§13).
-_POSITIONAL_AXES = "root, quality, inversion, range_octaves and string_set"
-
 _SEMITONES_PER_OCTAVE = len(theory.PITCH_CLASSES)
 
-
-def _tones(root: int, quality: str, inversion: str, octave_count: int) -> list[int]:
-    """The ascending chord tones across `octave_count`, closing on the octave.
-
-    `theory` owns the chord and the inversion; this only stacks the result and
-    appends the closing note, which is the same shape `theory.scale_pitches`
-    gives the scales.
-    """
-    chord = theory.chord_pitches(root, quality, INVERSIONS.index(inversion))
-    return [
-        *(
-            pitch + _SEMITONES_PER_OCTAVE * octave
-            for octave in range(octave_count)
-            for pitch in chord
-        ),
-        chord[0] + _SEMITONES_PER_OCTAVE * octave_count,
-    ]
+#: Strings an octave spans in perfect-fourths tuning — the same step
+#: `arpeggio_shapes` tiles the seed by, so the two cannot disagree about how far
+#: up the neck a higher octave sits.
+_OCTAVE_STRING_STEP = 2
 
 
-def _fret(profile: InstrumentProfile, pitch: int, string: int) -> int | None:
-    """The fret sounding `pitch` on `string`, or None if that string cannot."""
-    fret = pitch - profile.tuning[string]
-    return fret if 0 <= fret <= profile.fret_count else None
+def _tones_to_the_top(octave_len: int, top: int) -> int:
+    """How many ascending tones the seed lays out before one lands on `top`.
 
-
-def _demanded(profile: InstrumentProfile, pitch: int, string: int) -> int:
-    """The fret sounding `pitch` on `string`, or an error naming what it needed."""
-    fret = _fret(profile, pitch, string)
-    if fret is None:
-        msg = (
-            f"{_FAMILY}: pitch {pitch} needs fret {pitch - profile.tuning[string]} on string "
-            f"{string} of profile {profile.name!r}, which has frets 0 to {profile.fret_count}. "
-            f"The cycle is never truncated to fit (§7), so this specification is unrealizable "
-            f"rather than shorter"
-        )
-        raise ValueError(msg)
-    return fret
-
-
-def _across(
-    profile: InstrumentProfile,
-    pitches: Sequence[int],
-    strings: tuple[int, ...],
-) -> list[tuple[int, int]]:
-    """One chord tone per string, where `string_set` allows (§7).
-
-    The walk moves up one string per tone and holds where it cannot: a tone the
-    next string would need a negative fret for waits a string, and once the set
-    runs out the remaining tones continue up its top string. Both are ordinary
-    outcomes of a chord that is wider than the string set, not repairs — every
-    note still lands on a string that can sound it, and one that no string can
-    sound raises rather than being moved somewhere it was not asked for.
+    The seed places tone `index` on string `(index % octave_len) +
+    _OCTAVE_STRING_STEP * (index // octave_len)` (one tone per string, an octave
+    two strings up), mirroring `arpeggio_shapes.shape_places`. Every string is
+    reached in turn, so `top` is always hit exactly; the count is the index that
+    first lands on it, plus one.
     """
     index = 0
-    places = [(strings[0], _demanded(profile, pitches[0], strings[0]))]
-    for pitch in pitches[1:]:
-        if index + 1 < len(strings) and _fret(profile, pitch, strings[index + 1]) is not None:
-            index += 1
-        places.append((strings[index], _demanded(profile, pitch, strings[index])))
-    return places
+    while (index % octave_len) + _OCTAVE_STRING_STEP * (index // octave_len) != top:
+        index += 1
+    return index + 1
 
 
-def _places(
+def _journey(
     profile: InstrumentProfile,
-    pitches: Sequence[int],
-    strings: tuple[int, ...],
-    traversal: str,
-) -> list[tuple[int, int]]:
-    """Where each ascending chord tone is played, in chord order.
+    root: int,
+    quality: str,
+    inversion: str,
+) -> tuple[list[int], list[tuple[int, int]]]:
+    """Ascending chord tones placed by the seed shape, low string to top string.
 
-    `single_string` is the remaining case rather than a third test, for the
-    same reason `apply_direction` leaves `up_down` to fall through: `realizable`
-    has already rejected every traversal this family does not lay out.
+    The tones climb from the root's placement on the lowest instrument string,
+    laid out by `arpeggio_shapes.shape_places`, until the shape reaches the
+    opposite outer string — the point where the journey turns around (spec §5).
+    Extent and octave count are emergent, never a sampled target: the count of
+    tones is exactly what it takes the seed to reach the top string.
+
+    `shape_places` is the authority on placement, so its refusals propagate
+    unwrapped (§13): an unknown quality, or a tone that runs off the neck before
+    the top string — the "unrealizable journey" §9 resamples rather than
+    engraving a short arpeggio.
     """
-    if traversal == _POSITIONAL:
-        return boxed(profile, pitches, strings, _FAMILY, _POSITIONAL_AXES)
-    if traversal == _ACROSS_STRINGS:
-        return _across(profile, pitches, strings)
+    chord = theory.chord_pitches(root, quality, INVERSIONS.index(inversion))
+    root_place = (0, root - profile.tuning[0])
+    top = len(profile.tuning) - 1
 
-    if len(strings) != 1:
-        msg = (
-            f"{_FAMILY}: traversal {traversal!r} plays the whole arpeggio on one string, but "
-            f"string_set {list(strings)} names {len(strings)}. traversal and string_set "
-            f"cannot both be satisfied; §9 resamples this rather than narrowing the set"
-        )
-        raise ValueError(msg)
-    return [(strings[0], _demanded(profile, pitch, strings[0])) for pitch in pitches]
+    count = _tones_to_the_top(len(chord), top)
+    tones = [
+        chord[index % len(chord)] + _SEMITONES_PER_OCTAVE * (index // len(chord))
+        for index in range(count)
+    ]
+    places = shape_places(profile, root_place, quality, tones)
+    return tones, places
 
 
-def _title(
-    root: int, quality: str, inversion: str, traversal: str, pattern: str, direction: str
-) -> str:
-    """The plain-language name §12's cover page prints, built from the registry."""
-    figure = vocabulary.display("direction", direction)
-    if pattern != _STRAIGHT:
-        figure = f"{figure} {vocabulary.display('pattern', pattern)}"
+def _title(root: int, quality: str, inversion: str, pattern: str) -> str:
+    """The plain-language name §12's cover page prints, built from the registry.
 
-    chord = f"{theory.PITCH_CLASSES[root % _SEMITONES_PER_OCTAVE]} "
-    chord += vocabulary.display("quality", quality)
+    The journey is always up-and-down (spec §5), so the title states no
+    direction: what it names is the chord, its inversion when there is one, and
+    the pattern figure when it is not the plain reading.
+    """
+    name = (
+        f"{theory.PITCH_CLASSES[root % _SEMITONES_PER_OCTAVE]} "
+        f"{vocabulary.display('quality', quality)}"
+    )
     if inversion != INVERSIONS[0]:
-        chord += f", {vocabulary.display('inversion', inversion)}"
-    return f"{chord}, {vocabulary.display('traversal', traversal)}, {figure}"
+        name += f", {vocabulary.display('inversion', inversion)}"
+    if pattern != _STRAIGHT:
+        name += f", {vocabulary.display('pattern', pattern)}"
+    return name
 
 
 def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[Score, LayoutHints]:
@@ -312,30 +233,29 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
 
+    The voice is the up-and-down seed-shape journey (spec §5): the chord tones
+    are placed once by `arpeggio_shapes.shape_places` from the root on the lowest
+    string, `pattern` slides its window along the ascent, and `journey.updown`
+    orders the result up and back without replaying the apex.
+
     The hints are the fitter's window onto what the voice alone does not carry:
-    the natural cell is one turn of the `pattern` window, and an `up_down`
-    exercise names the apex it turns around at so the fitter's apex levers know
-    where to act. A one-directional exercise has no such seam.
+    the natural cell is one turn of the `pattern` window, and the journey names
+    the apex it turns around at so the fitter's apex levers know where to act.
     """
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
     quality = read.identifier("quality")
     inversion = read.identifier("inversion")
-    traversal = realizable(read, "traversal", _TRAVERSALS)
     pattern = realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
-    direction = read.identifier("direction")
-    octave_count = octaves(read)
-    strings = string_set(read, profile)
 
-    pitches = _tones(root, quality, inversion, octave_count)
-    places = _places(profile, pitches, strings, traversal)
+    tones, places = _journey(profile, root, quality, inversion)
     window = _PATTERN_WINDOWS[pattern]
-    ascending = windowed(window, len(pitches))
-    order = directed_by_cell(ascending, direction, len(window))
+    ascending = windowed(window, len(tones))
+    order = updown(ascending, len(window))
 
     voice: Voice = [
         Note(
-            pitch=pitches[tone],
+            pitch=tones[tone],
             string=places[tone][0],
             fret=places[tone][1],
             duration=NOTE_DURATION,
@@ -346,7 +266,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     ]
 
     score = Score(
-        title=_title(root, quality, inversion, traversal, pattern, direction),
+        title=_title(root, quality, inversion, pattern),
         instruction=INSTRUCTION,
         instrument=profile,
         time_signature=DEFAULT_TIME_SIGNATURE,
@@ -358,20 +278,19 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         key=theory.Key(root % _SEMITONES_PER_OCTAVE, theory.IMPLIED_PARENT[quality]),
         params=dict(params),
     )
-    return score, _hints(window, ascending, direction)
+    return score, _hints(window, ascending)
 
 
-def _hints(window: tuple[int, ...], ascending: Sequence[int], direction: str) -> LayoutHints:
-    """The §4.2 layout hints for a realized cycle.
+def _hints(window: tuple[int, ...], ascending: Sequence[int]) -> LayoutHints:
+    """The §4.2 layout hints for a realized journey.
 
-    The cell is one turn of the `pattern` window. `up_down` (via
-    `directed_by_cell`) turns around at a cell boundary — the apex cell of the
-    ascending pass, played once — so the seam is that cell's last note and the
-    apex levers become legal; a `up` or `down` exercise has no turnaround, so it
-    offers only the trailing add/drop.
+    The cell is one turn of the `pattern` window. The journey is always
+    up-and-down (spec §5): `journey.updown` turns around at a cell boundary — the
+    apex cell of the ascending pass, played once — so the seam is that cell's
+    last note and the apex levers become legal.
     """
-    seam = len(ascending) - 1 if direction == "up_down" else None
-    levers: tuple[Lever, ...] = (Lever.ADD_ONE, Lever.DROP_ONE)
-    if seam is not None:
-        levers = (*levers, Lever.APEX_REPEAT, Lever.APEX_OMIT)
-    return layout_hints(cell=len(window), seam=seam, levers=levers)
+    return layout_hints(
+        cell=len(window),
+        seam=len(ascending) - 1,
+        levers=(Lever.ADD_ONE, Lever.DROP_ONE, Lever.APEX_REPEAT, Lever.APEX_OMIT),
+    )
