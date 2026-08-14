@@ -1,16 +1,22 @@
-"""Tests for the `scales` family (spec §7).
+"""Tests for the `scales` family (spec §7, epic #72 §5-§7).
 
 The shape follows `test_chromatic.py`, because every family makes the same
 promise and §14 tests them the same way: one complete cycle, the central
 invariant, the exact parameters travelling inside the Score, a family-declared
 tempo, and a wide parameter sweep over the axes.
 
-Two halves are specific to this family. The *layout* tests assert that position
-selection is the family's job (spec §6): a traversal decides which string each
-scale degree is played on, and a degree that the pattern visits twice is played
-in the same place both times. The *error* tests assert that a specification the
-profile cannot supply raises and names what could not be satisfied — §9
-resamples that case and §13 forbids clamping it into something engravable.
+Since epic #72 the exercise is a **computed outer-to-outer journey**: the root
+anchors on the lowest string, the journey climbs string by string to the
+opposite outer string under a fingering style, and the whole thing is played up
+and back. The three geometry axes the old model sampled — `direction`,
+`string_set`, `range_octaves` — are gone; extent and octave count are emergent
+from reaching the top string. The *journey* tests assert that coverage
+(outer-to-outer, no gaps) and the up-and-down shape; the *layout* tests assert
+that position selection is the family's job (spec §6) — a fingering style
+decides which string each degree is played on, and a degree the pattern visits
+twice is played in the same place both times. The *error* tests assert that a
+specification the profile cannot supply raises rather than truncating the
+journey to fit (spec §10).
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ from conftest import assert_central_invariant, assert_spelling_sounds_correctly,
 from melete import theory
 from melete.families.scales import DEFAULT_TEMPO_RANGE, INSTRUCTION
 from melete.families.scales import generate as _generate
-from melete.instrument import PROFILES, positions
+from melete.instrument import PROFILES, hand_span
 from melete.layout import Lever
 
 if TYPE_CHECKING:
@@ -47,35 +53,26 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> Score:
     return score
 
 
-BASS6 = PROFILES["bass6"]
+BASS6 = PROFILES["bass6"]  # tuning B0 E1 A1 D2 G2 C3 = (23, 28, 33, 38, 43, 48).
 
-#: Every string of a six-string bass: B E A D G C.
-#:
-#: The whole set, and not the four lowest, because these parameters ask for a
-#: *positional* two-octave scale and two octaves only fit under one hand when
-#: the string set is wide enough to carry them (issue #57). Over B E A D the top
-#: octave lies on the D string alone, at frets 11 to 19, which is a shift and
-#: not a position — the family now says so rather than laying it out anyway.
-STRING_SET: tuple[int, ...] = (0, 1, 2, 3, 4, 5)
+#: The lowest and highest string indices of a six-string bass — the outer
+#: strings the journey travels between.
+_LOW = 0
+_HIGH = len(BASS6.tuning) - 1
 
-#: A1 = 33. Two octaves of Ionian is fifteen degrees, which is the length the
-#: plan's worked example uses throughout.
+#: A1 = 33 (fret 10 on the low B string). The four axes the family now reads: a
+#: content root and scale, a fingering style, and a grouping pattern. `positional`
+#: is the default because, across every root and scale in the sweep, the box
+#: reaches the top string within one hand — a clean journey on every draw.
 PARAMS: dict[str, object] = {
     "root": 33,
     "scale_type": "ionian",
     "traversal": "positional",
-    "string_set": STRING_SET,
     "pattern": "straight",
-    "range_octaves": 2,
-    "direction": "up",
 }
 
-#: The degrees of two-octave A Ionian, ascending. Written out rather than
-#: derived so the expectations below are readable without running `theory`.
-IONIAN_A2 = [33, 35, 37, 38, 40, 42, 44, 45, 47, 49, 50, 52, 54, 56, 57]
-
 PATTERNS = ["straight", "thirds", "fourths", "groups_of_3", "groups_of_4", "numeric_1235"]
-DIRECTIONS = ["up", "down", "up_down"]
+TRAVERSALS = ["positional", "three_note_per_string"]
 
 
 def params(**overrides: object) -> dict[str, object]:
@@ -93,14 +90,14 @@ def places_of(score: Score) -> list[tuple[int, int]]:
     return [(note.string, note.fret) for note in notes_of(score)]
 
 
+def strings_of(score: Score) -> list[int]:
+    """The string of every note, in playing order."""
+    return [note.string for note in notes_of(score)]
+
+
 # --------------------------------------------------------------------------
 # The family contract
 # --------------------------------------------------------------------------
-
-
-def test_generates_one_complete_cycle() -> None:
-    # 2 x 7 degrees plus the closing octave (spec §7: never truncated).
-    assert len(generate(BASS6, PARAMS).voice) == 15
 
 
 def test_obeys_the_central_invariant() -> None:
@@ -128,6 +125,14 @@ def test_params_travel_inside_the_score() -> None:
     assert generate(BASS6, PARAMS).params == PARAMS
 
 
+def test_extra_axes_are_carried_untouched() -> None:
+    # The retired geometry axes may still arrive from config until Task E2
+    # migrates it, and §8's rhythm axes always do. The family reads neither and
+    # carries both into the Score untouched (the existing contract).
+    spec = params(direction="up", string_set=(0, 1, 2, 3), range_octaves=2, subdivision="triplet")
+    assert generate(BASS6, spec).params == spec
+
+
 def test_default_tempo_range_is_declared_by_the_family() -> None:
     # Spec §7: the family declares the range and the selector never samples it.
     assert DEFAULT_TEMPO_RANGE == (80, 140)
@@ -150,15 +155,18 @@ def test_the_fingering_is_left_unspecified() -> None:
 
 
 def test_the_score_carries_a_title_and_a_focus_cue() -> None:
+    # The title no longer names a direction: every scale is drilled up and down.
     score = generate(BASS6, params(root=38, scale_type="dorian"))
-    assert score.title == "D Dorian, positional, ascending"
+    assert score.title == "D Dorian, positional"
     assert score.instruction == INSTRUCTION
 
 
 def test_the_title_names_a_pattern_only_when_there_is_one() -> None:
-    assert generate(BASS6, PARAMS).title == "A Ionian, positional, ascending"
+    assert generate(BASS6, PARAMS).title == "A Ionian, positional"
     thirds = generate(BASS6, params(pattern="thirds"))
-    assert thirds.title == "A Ionian, positional, ascending thirds"
+    assert thirds.title == "A Ionian, positional, thirds"
+    three_note = generate(BASS6, params(traversal="three_note_per_string"))
+    assert three_note.title == "A Ionian, three-notes-per-string"
 
 
 def test_generate_is_pure() -> None:
@@ -173,8 +181,55 @@ def test_generate_is_pure() -> None:
     assert given["root"] == 33
 
 
+def test_the_hints_carry_the_up_and_down_apex_accounting() -> None:
+    # The voice is always up-and-down (spec §5), so it always declares its apex
+    # seam and carries the apex-repeat/omit levers the fitter reaches a whole
+    # bar with — never the plain add/drop of a one-directional run.
+    _score, hints = _generate(BASS6, PARAMS)
+    assert hints.seam is not None
+    assert hints.levers == (Lever.APEX_REPEAT, Lever.APEX_OMIT)
+    assert hints.cell == 1  # `straight` is a one-note window
+
+
 # --------------------------------------------------------------------------
-# Pitch content comes from `theory`
+# The journey: outer string to opposite outer string, up and down (spec §5)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("traversal", TRAVERSALS)
+def test_the_journey_reaches_both_outer_strings(traversal: str) -> None:
+    # Extent is governed by outer-string-to-outer-string, not an octave count:
+    # every string is used, in order, with no gaps (the fix for defects 1 and 4).
+    strings = strings_of(generate(BASS6, params(traversal=traversal)))
+    assert min(strings) == _LOW and max(strings) == _HIGH
+    assert sorted(set(strings)) == list(range(len(BASS6.tuning)))
+
+
+@pytest.mark.parametrize("traversal", TRAVERSALS)
+def test_the_journey_starts_and_ends_on_the_low_string(traversal: str) -> None:
+    # Up and back: the round trip begins at the low anchor and returns to it.
+    strings = strings_of(generate(BASS6, params(traversal=traversal)))
+    assert strings[0] == _LOW
+    assert strings[-1] == _LOW
+
+
+def test_a_straight_journey_is_an_exact_palindrome() -> None:
+    # `straight` is a one-note cell, so the descent is the note-level retrograde
+    # of the ascent: the whole pitch sequence reads the same forwards and back.
+    played = pitches_of(generate(BASS6, PARAMS))
+    assert played == played[::-1]
+    assert played[0] == 33  # anchored on the root
+
+
+def test_the_ascent_climbs_then_the_descent_falls() -> None:
+    played = pitches_of(generate(BASS6, PARAMS))
+    apex = played.index(max(played))
+    assert played[: apex + 1] == sorted(played[: apex + 1])  # strictly up to the apex
+    assert played[apex:] == sorted(played[apex:], reverse=True)  # then down
+
+
+# --------------------------------------------------------------------------
+# Pitch content comes from `theory`, and the octaves it yields are emergent
 # --------------------------------------------------------------------------
 
 
@@ -185,92 +240,33 @@ def test_scale_content_matches_theory() -> None:
     }
 
 
-def test_the_degrees_are_theory_s_and_in_theory_s_order() -> None:
-    assert pitches_of(generate(BASS6, PARAMS)) == theory.scale_pitches(33, "ionian", 2)
-    assert pitches_of(generate(BASS6, PARAMS)) == IONIAN_A2
+def test_the_ascending_degrees_are_a_prefix_of_theory_s_supply() -> None:
+    # The family draws a long ascending supply from `theory` and uses the leading
+    # run that reaches the top string; the ascent is exactly that prefix, in order.
+    played = pitches_of(generate(BASS6, PARAMS))
+    ascent = played[: played.index(max(played)) + 1]
+    supply = theory.scale_pitches(33, "ionian", len(BASS6.tuning) + 1)
+    assert ascent == supply[: len(ascent)]
 
 
-def test_one_octave_closes_on_the_octave() -> None:
-    score = generate(BASS6, params(range_octaves=1))
-    assert pitches_of(score) == [33, 35, 37, 38, 40, 42, 44, 45]
-
-
-def test_three_octaves_span_three_octaves() -> None:
-    # Three octaves is 36 semitones and no hand covers that, so the pitch
-    # content is asserted through the traversal that spreads it up the neck:
-    # one octave per string, over every second string from the low B.
-    score = generate(
-        BASS6,
-        params(root=24, traversal="octave_per_string", string_set=(0, 2, 4), range_octaves=3),
-    )
-    assert len(score.voice) == 22
-    assert pitches_of(score)[-1] - pitches_of(score)[0] == 36
-
-
-def test_stays_within_the_declared_string_set() -> None:
-    score = generate(BASS6, PARAMS)
-    assert {note.string for note in notes_of(score)} <= set(STRING_SET)
+def test_octave_count_is_emergent_from_the_instrument() -> None:
+    # A six-string yields roughly two and a half octaves — whatever reaching the
+    # top string gives, never a sampled target.
+    ascent_span = max(pitches_of(generate(BASS6, PARAMS))) - 33
+    assert 24 <= ascent_span <= 36  # between two and three octaves
 
 
 # --------------------------------------------------------------------------
-# `direction` orders the sequence (the `chromatic` precedent)
+# `pattern` reorders the degrees before positions are assigned (spec §7)
 # --------------------------------------------------------------------------
 
 
-def test_direction_up_ascends() -> None:
-    assert pitches_of(generate(BASS6, PARAMS)) == IONIAN_A2
-
-
-def test_direction_down_reverses_the_sequence() -> None:
-    assert pitches_of(generate(BASS6, params(direction="down"))) == IONIAN_A2[::-1]
-
-
-def test_up_down_returns_without_replaying_the_apex() -> None:
-    score = generate(BASS6, params(direction="up_down"))
-    assert len(score.voice) == 29  # 15 up + 14 down
-    assert pitches_of(score) == IONIAN_A2 + IONIAN_A2[-2::-1]
-
-
-def test_direction_reorders_without_changing_the_content() -> None:
-    up = generate(BASS6, PARAMS)
-    for direction in DIRECTIONS:
-        other = generate(BASS6, params(direction=direction))
-        assert set(pitches_of(other)) == set(pitches_of(up))
-
-
-def test_scales_default_direction_is_up_down() -> None:
-    # #117: drilling both directions is the norm, so an unspecified `direction`
-    # defaults to `up_down` rather than requiring the caller to name it. The
-    # voice ascends and returns, and the hints carry the apex accounting a
-    # one-directional run does not need.
-    spec = params()
-    del spec["direction"]
-    score, hints = _generate(BASS6, spec)
-    assert pitches_of(score) == IONIAN_A2 + IONIAN_A2[-2::-1]  # up and back
-    assert hints.seam is not None
-    assert Lever.APEX_REPEAT in hints.levers
-
-
-# --------------------------------------------------------------------------
-# `pattern` reorders the degrees before positions are assigned
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("pattern", "count"),
-    [
-        ("straight", 15),  # every degree once
-        ("thirds", 26),  # 2 x (15 - 2)
-        ("fourths", 24),  # 2 x (15 - 3)
-        ("groups_of_3", 39),  # 3 x (15 - 2)
-        ("groups_of_4", 48),  # 4 x (15 - 3)
-        ("numeric_1235", 44),  # 4 x (15 - 4)
-    ],
-)
-def test_each_pattern_emits_one_complete_cycle(pattern: str, count: int) -> None:
+@pytest.mark.parametrize("pattern", PATTERNS)
+def test_each_pattern_is_up_and_down_and_holds_the_invariant(pattern: str) -> None:
     score = generate(BASS6, params(pattern=pattern))
-    assert len(score.voice) == count
     assert_central_invariant(score)
+    strings = strings_of(score)
+    assert strings[0] == _LOW and strings[-1] == _LOW
 
 
 def test_thirds_produces_more_notes_than_straight() -> None:
@@ -279,20 +275,35 @@ def test_thirds_produces_more_notes_than_straight() -> None:
     assert len(thirds.voice) > len(straight.voice)
 
 
-def test_thirds_emits_1_3_2_4_3_5() -> None:
+def test_thirds_emits_overlapping_thirds_across_the_ascent() -> None:
     played = pitches_of(generate(BASS6, params(pattern="thirds")))
-    assert played[:6] == [IONIAN_A2[i] for i in (0, 2, 1, 3, 2, 4)]
-    assert played[-2:] == [IONIAN_A2[12], IONIAN_A2[14]]
+    ascent = pitches_of(generate(BASS6, PARAMS))
+    ascent = ascent[: ascent.index(max(ascent)) + 1]  # the underlying scale run
+    # 1-3, 2-4, 3-5: each window starts one degree higher and skips one.
+    assert played[:6] == [ascent[i] for i in (0, 2, 1, 3, 2, 4)]
 
 
 def test_groups_of_3_emits_overlapping_groups() -> None:
     played = pitches_of(generate(BASS6, params(pattern="groups_of_3")))
-    assert played[:9] == [IONIAN_A2[i] for i in (0, 1, 2, 1, 2, 3, 2, 3, 4)]
+    ascent = pitches_of(generate(BASS6, PARAMS))
+    ascent = ascent[: ascent.index(max(ascent)) + 1]
+    assert played[:9] == [ascent[i] for i in (0, 1, 2, 1, 2, 3, 2, 3, 4)]
 
 
 def test_numeric_1235_skips_the_fourth_degree_of_each_group() -> None:
     played = pitches_of(generate(BASS6, params(pattern="numeric_1235")))
-    assert played[:8] == [IONIAN_A2[i] for i in (0, 1, 2, 4, 1, 2, 3, 5)]
+    ascent = pitches_of(generate(BASS6, PARAMS))
+    ascent = ascent[: ascent.index(max(ascent)) + 1]
+    assert played[:8] == [ascent[i] for i in (0, 1, 2, 4, 1, 2, 3, 5)]
+
+
+def test_a_grouping_pattern_reaches_the_top_string_before_turning() -> None:
+    # Defect 3 was the window running out of notes before the top; the full
+    # outer-to-outer ascent supplies the notes it needs, so the ascending half
+    # reaches the top string.
+    notes = notes_of(generate(BASS6, params(pattern="groups_of_4")))
+    ascent = notes[: len(notes) // 2 + 1]
+    assert max(note.string for note in ascent) == _HIGH
 
 
 def test_a_pattern_reorders_without_changing_the_content() -> None:
@@ -302,117 +313,52 @@ def test_a_pattern_reorders_without_changing_the_content() -> None:
         assert set(pitches_of(other)) == set(pitches_of(straight))
 
 
-def test_a_descending_pattern_is_the_retrograde_of_the_ascending_one() -> None:
-    # `pattern` shapes the sequence and `direction` then orders it, so
-    # descending thirds fall out as the retrograde rather than as a second
-    # implementation of the same figure.
-    up = pitches_of(generate(BASS6, params(pattern="thirds")))
-    down = pitches_of(generate(BASS6, params(pattern="thirds", direction="down")))
-    assert down == up[::-1]
-
-
-def test_up_down_in_thirds_turns_around_at_the_cell_boundary() -> None:
-    # thirds is a two-note cell, so up_down turns around a whole cell at a time
-    # (§132): 13 cells up and 12 back is 25 cells = 50 notes, not the 51 a
-    # note-level turnaround would leave — an untileable half-cell that no
-    # `cell = 2` meter divides.
-    score = generate(BASS6, params(pattern="thirds", direction="up_down"))
-    played = pitches_of(score)
-    assert len(played) == 50  # 26 up + 24 back
-    # The apex cell (degrees 12, 14) is played once; the return is the retrograde
-    # of the ascent minus that apex cell — a descending third, high note first.
-    assert played[24:28] == [IONIAN_A2[i] for i in (12, 14, 13, 11)]
-
-
 # --------------------------------------------------------------------------
-# The traversals: position selection is the family's job (spec §6)
+# The fingering styles: position selection is the family's job (spec §6)
 # --------------------------------------------------------------------------
 
 
-def test_positional_chooses_the_box_minimizing_fret_travel() -> None:
-    # A minor pentatonic over strings 2-3 of bass6 (A1 = 33, D2 = 38). Base
-    # fret 5 costs eleven frets of travel and every other base fret costs more
-    # — 12 at frets 3 and 4, 13 at frets 2 and 6 — so each degree takes the
-    # candidate nearest fret 5. The answer is the box a player would use: A C D
-    # E on the A string from the open root, then G A on the D string.
-    score = generate(
-        BASS6,
-        params(root=33, scale_type="minor_pentatonic", range_octaves=1, string_set=(2, 3)),
-    )
-    assert places_of(score) == [(2, 0), (2, 3), (2, 5), (2, 7), (3, 5), (3, 7)]
+def test_positional_stays_within_one_hand_position() -> None:
+    score = generate(BASS6, PARAMS)
+    assert hand_span(note.fret for note in notes_of(score)) <= BASS6.position_span
 
 
-def test_positional_travels_less_than_taking_every_degree_on_the_lowest_string() -> None:
-    # The independent check on the objective: the layout the family chose is
-    # tighter under the hand than the obvious alternative of always taking the
-    # lowest string in the set that can reach the degree.
-    chosen = [note.fret for note in notes_of(generate(BASS6, PARAMS))]
-    lowest = [
-        next(fret for string, fret in positions(BASS6, pitch) if string in STRING_SET)
-        for pitch in IONIAN_A2
-    ]
-    assert max(chosen) - min(chosen) < max(lowest) - min(lowest)
-
-
-def test_positional_may_use_every_string_in_the_set() -> None:
+def test_positional_uses_more_than_one_string() -> None:
     score = generate(BASS6, PARAMS)
     assert len({note.string for note in notes_of(score)}) > 1
 
 
 def test_three_note_per_string_puts_exactly_three_notes_on_each_string() -> None:
-    score = generate(BASS6, params(traversal="three_note_per_string", string_set=(0, 1, 2, 3, 4)))
-    counts = Counter(note.string for note in notes_of(score))
+    score = generate(BASS6, params(traversal="three_note_per_string"))
+    # Ascending, each string is visited once with three consecutive degrees; the
+    # up-and-down return revisits them, so three-per-string is the ascending count.
+    ascent = notes_of(score)[: len(notes_of(score)) // 2 + 1]
+    counts = Counter(note.string for note in ascent)
     assert set(counts.values()) == {3}
-    assert sorted(counts) == [0, 1, 2, 3, 4]
+    assert sorted(counts) == list(range(len(BASS6.tuning)))
 
 
 def test_three_note_per_string_assigns_consecutive_degrees_to_each_string() -> None:
-    score = generate(BASS6, params(traversal="three_note_per_string", string_set=(0, 1, 2, 3, 4)))
-    assert places_of(score) == [
+    score = generate(BASS6, params(traversal="three_note_per_string"))
+    ascent = places_of(score)[:18]  # three notes on each of six strings
+    assert ascent == [
         (0, 10), (0, 12), (0, 14),
         (1, 10), (1, 12), (1, 14),
         (2, 11), (2, 12), (2, 14),
         (3, 11), (3, 12), (3, 14),
         (4, 11), (4, 13), (4, 14),
+        (5, 11), (5, 13), (5, 14),
     ]  # fmt: skip
+    for string, fret in ascent:
+        assert BASS6.tuning[string] + fret in {note.pitch for note in notes_of(score)}
 
 
-def test_octave_per_string_puts_one_octave_on_each_string() -> None:
-    score = generate(BASS6, params(traversal="octave_per_string", string_set=(2, 3)))
-    counts = Counter(note.string for note in notes_of(score))
-    # The closing octave joins the last string rather than starting a third.
-    assert counts == Counter({2: 7, 3: 8})
-    assert places_of(score)[:7] == [(2, 0), (2, 2), (2, 4), (2, 5), (2, 7), (2, 9), (2, 11)]
-
-
-def test_single_string_stays_on_one_string() -> None:
-    # String 2 is the open A1 the exercise starts on, so every fret is the
-    # degree's distance above the root.
-    score = generate(BASS6, params(traversal="single_string", string_set=(2,)))
-    assert {note.string for note in notes_of(score)} == {2}
-    assert [note.fret for note in notes_of(score)] == [pitch - 33 for pitch in IONIAN_A2]
-
-
-@pytest.mark.parametrize(
-    ("traversal", "string_set"),
-    [
-        ("positional", STRING_SET),
-        ("three_note_per_string", (0, 1, 2, 3, 4)),
-        ("octave_per_string", (2, 3)),
-        ("single_string", (2,)),
-    ],
-)
-def test_a_degree_keeps_its_place_however_often_the_pattern_visits_it(
-    traversal: str,
-    string_set: tuple[int, ...],
-) -> None:
-    # `groups_of_3` plays every inner degree three times. A traversal decides
-    # where a degree lives, so all three must land in the same place — a scale
-    # that moved under the player's hand mid-figure is a different exercise.
-    score = generate(
-        BASS6,
-        params(traversal=traversal, string_set=string_set, pattern="groups_of_3"),
-    )
+@pytest.mark.parametrize("traversal", TRAVERSALS)
+def test_a_degree_keeps_its_place_however_often_the_pattern_visits_it(traversal: str) -> None:
+    # `groups_of_3` plays every inner degree three times. A fingering style
+    # decides where a degree lives, so all three must land in the same place — a
+    # scale that moved under the player's hand mid-figure is a different exercise.
+    score = generate(BASS6, params(traversal=traversal, pattern="groups_of_3"))
     seen: dict[int, tuple[int, int]] = {}
     for note in notes_of(score):
         assert seen.setdefault(note.pitch, (note.string, note.fret)) == (note.string, note.fret)
@@ -426,64 +372,60 @@ def test_a_degree_keeps_its_place_however_often_the_pattern_visits_it(
 
 @pytest.mark.parametrize("root", range(24, 36))
 @pytest.mark.parametrize("scale_type", sorted(theory.SCALES))
-def test_invariant_holds_across_every_root_and_scale(root: int, scale_type: str) -> None:
-    # Not every two-octave scale fits under one hand even across six strings —
-    # a positional draw that does not is refused rather than laid out (issue
-    # #57), and §9 resamples it. What is asserted here is that the two are the
-    # only outcomes: a Score that holds together, or a refusal that says why.
-    try:
-        score = generate(BASS6, params(root=root, scale_type=scale_type))
-    except ValueError as error:
-        assert "must fit one position" in str(error)
-        return
+def test_positional_realizes_every_root_and_scale_outer_to_outer(
+    root: int, scale_type: str
+) -> None:
+    # The positional box reaches the opposite outer string within one hand on
+    # every draw in this range, so the sweep asserts the journey outright: a
+    # Score that holds together, spelled correctly, covering the whole neck.
+    score = generate(BASS6, params(root=root, scale_type=scale_type))
     assert_central_invariant(score)
     assert_spelling_sounds_correctly(score)
     assert score.key == theory.Key(root % 12, scale_type)
-    assert len(score.voice) == len(theory.scale_pitches(root, scale_type, 2))
-    assert {note.string for note in notes_of(score)} <= set(STRING_SET)
+    strings = strings_of(score)
+    assert min(strings) == _LOW and max(strings) == _HIGH
+    assert hand_span(note.fret for note in notes_of(score)) <= BASS6.position_span
 
 
-@pytest.mark.parametrize(("pattern", "direction"), list(product(PATTERNS, DIRECTIONS)))
-def test_invariant_holds_across_patterns_and_directions(pattern: str, direction: str) -> None:
-    score = generate(BASS6, params(pattern=pattern, direction=direction))
+@pytest.mark.parametrize(("pattern", "traversal"), list(product(PATTERNS, TRAVERSALS)))
+def test_invariant_holds_across_patterns_and_traversals(pattern: str, traversal: str) -> None:
+    score = generate(BASS6, params(pattern=pattern, traversal=traversal))
     assert_central_invariant(score)
     assert_spelling_sounds_correctly(score)
 
 
 @pytest.mark.parametrize("profile_name", sorted(PROFILES))
-def test_invariant_holds_across_the_profiles(profile_name: str) -> None:
+def test_the_journey_reaches_both_outer_strings_on_every_profile(profile_name: str) -> None:
+    # A four-string yields ≈1.5 octaves and a six-string ≈2.5, but each reaches
+    # its own opposite outer string — the invariant that generalizes across
+    # instruments where a fixed octave count would not (spec §5).
     profile = PROFILES[profile_name]
-    # One octave from A1 across every string the profile has. A four-string
-    # bass carries a two-octave positional scale nowhere — fifteen semitones of
-    # open-string spread cannot cover twenty-four of scale under one hand — so
-    # the sweep asks each profile for the exercise it can actually play.
-    spec = params(root=33, range_octaves=1, string_set=tuple(range(len(profile.tuning))))
-    assert_central_invariant(generate(profile, spec))
+    score = generate(profile, PARAMS)
+    strings = [note.string for note in notes_of(score)]
+    assert min(strings) == 0 and max(strings) == len(profile.tuning) - 1
+    assert_central_invariant(score)
 
 
 @pytest.mark.parametrize("scale_type", sorted(theory.SCALES))
 def test_three_note_per_string_realizes_or_names_what_it_cannot(scale_type: str) -> None:
-    # Three notes per string fixes the note count at 3 x len(string_set), so a
-    # scale whose two-octave cycle is not a multiple of three cannot be laid
-    # out at all. §9 resamples that draw; §13 forbids truncating the cycle to
-    # fit, so the family raises and says which axes disagreed.
-    degrees = len(theory.scale_pitches(33, scale_type, 2))
-    spec = params(
-        scale_type=scale_type,
-        traversal="three_note_per_string",
-        string_set=tuple(range(degrees // 3)),
-    )
-    if degrees % 3:
-        with pytest.raises(ValueError, match=r"cannot all be satisfied"):
-            generate(BASS6, spec)
+    # Three notes per string climbs every string; a scale whose degrees run off
+    # the neck (below the open low string, or past the top fret) cannot be laid
+    # out. §9 resamples that draw; §10 forbids truncating the journey to fit, so
+    # the family raises and names the fret that could not be placed.
+    spec = params(scale_type=scale_type, traversal="three_note_per_string")
+    try:
+        score = generate(BASS6, spec)
+    except ValueError as error:
+        assert "needs fret" in str(error)
+        assert "scales" in str(error)
         return
-    score = generate(BASS6, spec)
     assert_central_invariant(score)
-    assert set(Counter(note.string for note in notes_of(score)).values()) == {3}
+    ascent = notes_of(score)[: len(notes_of(score)) // 2 + 1]
+    assert set(Counter(note.string for note in ascent).values()) == {3}
 
 
 # --------------------------------------------------------------------------
-# Unrealizable specifications raise, naming what could not be satisfied (§13)
+# Unrealizable or malformed specifications raise, naming what failed (§13)
 # --------------------------------------------------------------------------
 
 
@@ -499,11 +441,6 @@ def test_an_unknown_identifier_lists_the_accepted_values() -> None:
         generate(BASS6, params(scale_type="lydian_b9"))
 
 
-def test_a_non_string_identifier_is_rejected() -> None:
-    with pytest.raises(ValueError, match=r"unknown direction 3"):
-        generate(BASS6, params(direction=3))
-
-
 def test_a_traversal_this_family_cannot_realize_is_rejected() -> None:
     # `across_strings` is a registry identifier, but it belongs to `arpeggios`:
     # one axis, and each family validates the subset it can realize (§13).
@@ -511,146 +448,40 @@ def test_a_traversal_this_family_cannot_realize_is_rejected() -> None:
         generate(BASS6, params(traversal="across_strings"))
 
 
+def test_a_deferred_traversal_is_rejected() -> None:
+    # `single_string` and `octave_per_string` are deferred to the single/two
+    # string modes (spec §13); the family names them as another family's values.
+    with pytest.raises(ValueError, match=r"traversal 'single_string'.*scales realizes"):
+        generate(BASS6, params(traversal="single_string"))
+
+
 def test_a_pattern_this_family_cannot_realize_is_rejected() -> None:
     with pytest.raises(ValueError, match=r"pattern 'broken'.*scales realizes"):
         generate(BASS6, params(pattern="broken"))
 
 
-def test_a_non_integer_range_axis_is_rejected() -> None:
+def test_a_non_integer_root_is_rejected() -> None:
     with pytest.raises(ValueError, match=r"root must be an integer, got '33'"):
         generate(BASS6, params(root="33"))
 
 
-def test_a_boolean_is_not_an_integer() -> None:
-    with pytest.raises(ValueError, match=r"range_octaves must be an integer, got True"):
-        generate(BASS6, params(range_octaves=True))
+def test_a_boolean_root_is_not_an_integer() -> None:
+    with pytest.raises(ValueError, match=r"root must be an integer, got True"):
+        generate(BASS6, params(root=True))
 
 
-@pytest.mark.parametrize("octaves", [0, 4, -1])
-def test_range_octaves_is_one_two_or_three(octaves: int) -> None:
-    with pytest.raises(ValueError, match=r"range_octaves must be one of \[1, 2, 3\]"):
-        generate(BASS6, params(range_octaves=octaves))
-
-
-def test_a_string_set_must_be_a_sequence_of_strings() -> None:
-    with pytest.raises(ValueError, match=r"string_set must be a non-empty sequence"):
-        generate(BASS6, params(string_set=2))
-
-
-def test_an_empty_string_set_is_rejected() -> None:
-    with pytest.raises(ValueError, match=r"string_set must be a non-empty sequence"):
-        generate(BASS6, params(string_set=()))
-
-
-def test_a_string_set_holds_integers() -> None:
-    with pytest.raises(ValueError, match=r"string_set must hold integer string indices"):
-        generate(BASS6, params(string_set=(0, "1")))
-
-
-@pytest.mark.parametrize("string_set", [(2, 1, 0), (0, 1, 1)])
-def test_a_string_set_is_ascending_and_never_re_sorted(string_set: tuple[int, ...]) -> None:
-    # Re-sorting or de-duplicating silently would engrave a different string
-    # set from the one the selector drew (§13's stance on tunings).
-    with pytest.raises(ValueError, match=r"string_set .* must be strictly ascending"):
-        generate(BASS6, params(string_set=string_set))
-
-
-def test_a_string_set_off_the_instrument_raises() -> None:
-    with pytest.raises(ValueError, match=r"string_set .* is off profile 'bass4'"):
-        generate(PROFILES["bass4"], params(string_set=(0, 1, 2, 3, 4)))
-
-
-def test_a_negative_string_index_raises() -> None:
-    with pytest.raises(ValueError, match=r"string_set .* is off profile 'bass6'"):
-        generate(BASS6, params(string_set=(-1, 0)))
-
-
-def test_a_degree_no_string_in_the_set_can_reach_raises() -> None:
-    # A1 is fifteen semitones below the open C string, so a positional
-    # traversal confined to it has nowhere to put the root.
-    with pytest.raises(ValueError, match=r"pitch 33 is unreachable on strings \[5\]"):
-        generate(BASS6, params(string_set=(5,)))
-
-
-def test_positional_two_octave_fallback_is_recorded_not_silent() -> None:
-    """#117: two octaves is *attempted* from the low string, with a declared fallback.
-
-    A♭ Ionian (A♭1 = 32), `positional`, two octaves, over the four lowest
-    strings B E A D. The top octave will not sit under one hand there — over
-    B E A D it lands on the D string alone, a shift and not a position — so the
-    family drops to one octave played up-and-down and **records** the compromise
-    in `params["layout_fallback"]` rather than silently shifting out of position
-    to fake two octaves (#57's original defect, now made visible instead of
-    either mislabelled or hard-refused).
-    """
-    spec = params(root=32, string_set=(0, 1, 2, 3))
-    del spec["direction"]  # the #117 default: up_down
-    score = generate(BASS6, spec)
-
-    fallback = score.params.get("layout_fallback")
-    assert fallback in (None, "one_octave_up_down")
-    if fallback is not None:
-        # One octave, up and back — never truncated to fit, just fewer octaves.
-        one_octave = theory.scale_pitches(32, "ionian", 1)
-        assert pitches_of(score) == one_octave + one_octave[-2::-1]
-        # And genuinely one position: the fallback is a compromise made visible,
-        # not a silent fourteen-fret reach under a "positional" label.
-        frets = [note.fret for note in notes_of(score)]
-        assert max(frets) - min(frets) <= BASS6.position_span
-
-
-def test_a_positional_two_octave_that_cannot_even_fall_back_still_raises() -> None:
-    """The fallback is not a silent catch-all: when even one octave will not fit.
-
-    A single-string `positional` set cannot hold a whole octave under one hand —
-    twelve frets against a four-fret position — so the two-octave attempt raises,
-    the one-octave retry raises too, and the family surfaces the refusal (§13)
-    rather than swallowing it. #57's "refuse rather than mislabel" still holds
-    for the genuinely unrealizable case; #117 only softens the case that *can*
-    fall back.
-    """
-    spec = params(string_set=(2,), range_octaves=2)
-    with pytest.raises(ValueError, match=r"positional traversal must fit one position"):
+def test_a_journey_running_off_the_low_string_raises_rather_than_truncating() -> None:
+    # Three notes per string from a root whose opening degrees fall below the
+    # open low string needs a negative fret; the journey is never truncated to
+    # fit (spec §10), so the family surfaces the fret it could not place.
+    spec = params(root=24, scale_type="diminished_half_whole", traversal="three_note_per_string")
+    with pytest.raises(ValueError, match=r"scales: pitch \d+ needs fret -\d+ on string"):
         generate(BASS6, spec)
 
 
-def test_a_position_that_does_fit_is_within_the_profile_s_span() -> None:
-    frets = [note.fret for note in notes_of(generate(BASS6, PARAMS)) if note.fret]
-    assert max(frets) - min(frets) <= BASS6.position_span
-
-
-def test_three_note_per_string_needs_one_string_per_group() -> None:
-    with pytest.raises(ValueError, match=r"three_note_per_string.*cannot all be satisfied"):
-        generate(BASS6, params(traversal="three_note_per_string", string_set=(0, 1, 2, 3)))
-
-
-def test_octave_per_string_needs_one_string_per_octave() -> None:
-    with pytest.raises(ValueError, match=r"octave_per_string.*cannot all be satisfied"):
-        generate(BASS6, params(traversal="octave_per_string", string_set=(0, 1, 2)))
-
-
-def test_single_string_contradicts_a_wider_string_set() -> None:
-    with pytest.raises(ValueError, match=r"single_string.*cannot all be satisfied"):
-        generate(BASS6, params(traversal="single_string", string_set=(0, 1)))
-
-
-def test_running_past_the_last_fret_raises() -> None:
-    # Three octaves from the open A string runs out of neck one degree past
-    # the top fret, and the cycle is never truncated to fit (spec §7).
-    spec = params(traversal="single_string", string_set=(2,), range_octaves=3)
-    with pytest.raises(ValueError, match=r"fret 26 on string \d+ of profile 'bass6'"):
-        generate(BASS6, spec)
-
-
-def test_a_degree_below_the_open_string_raises() -> None:
-    # The lowest degree is below the open G string, so the first group of a
-    # three-notes-per-string layout would need a negative fret.
-    spec = params(
-        root=33,
-        traversal="three_note_per_string",
-        string_set=(4, 5),
-        range_octaves=1,
-        scale_type="major_pentatonic",
-    )
-    with pytest.raises(ValueError, match=r"fret -10 on string \d+ of profile 'bass6'"):
+def test_a_journey_running_past_the_top_fret_raises() -> None:
+    # And the same at the other end: a root high enough that a string's group
+    # runs past the last fret is unrealizable rather than clamped.
+    spec = params(root=32, scale_type="minor_pentatonic", traversal="three_note_per_string")
+    with pytest.raises(ValueError, match=r"scales: pitch \d+ needs fret 25 on string"):
         generate(BASS6, spec)

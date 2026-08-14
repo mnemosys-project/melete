@@ -23,6 +23,7 @@ from melete.families._shared import (
     apply_direction,
     boxed,
     directed_by_cell,
+    string_set,
     there_and_back,
 )
 from melete.instrument import PROFILES, hand_span
@@ -155,6 +156,33 @@ def test_the_position_is_the_profile_s_and_not_a_constant_of_this_module() -> No
     narrow = replace(BASS6, position_span=1)
     with pytest.raises(ValueError, match=r"against a position of 1"):
         boxed(narrow, [33, 35, 37], (1, 2), "scales", AXIS_LIST)
+
+
+# --------------------------------------------------------------------------
+# `string_set`: the strings the exercise is laid across, validated not repaired
+# --------------------------------------------------------------------------
+#
+# `arpeggios` and `intervals` still read `string_set`; `scales` no longer does
+# (epic #72 Task B2), so its error branches are unit-tested here at their source
+# rather than through whichever family happens to exercise them.
+
+
+def test_a_string_set_must_be_a_non_empty_sequence() -> None:
+    read = Parameters("arpeggios", ("string_set",), {"string_set": 2})
+    with pytest.raises(ValueError, match=r"string_set must be a non-empty sequence"):
+        string_set(read, BASS6)
+
+
+def test_an_empty_string_set_is_rejected() -> None:
+    read = Parameters("arpeggios", ("string_set",), {"string_set": ()})
+    with pytest.raises(ValueError, match=r"string_set must be a non-empty sequence"):
+        string_set(read, BASS6)
+
+
+def test_a_string_set_holds_only_integer_indices() -> None:
+    read = Parameters("arpeggios", ("string_set",), {"string_set": (0, "1")})
+    with pytest.raises(ValueError, match=r"string_set must hold integer string indices"):
+        string_set(read, BASS6)
 
 
 # --------------------------------------------------------------------------
