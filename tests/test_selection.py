@@ -20,7 +20,7 @@ import pytest
 from melete import pipeline, rhythm
 from melete.config import RHYTHM, load_string
 from melete.families import REGISTRY, Family
-from melete.instrument import hand_span
+from melete.instrument import PROFILES, hand_span
 from melete.score import Tuplet
 from melete.selection import (
     FAMILY,
@@ -29,6 +29,7 @@ from melete.selection import (
     ExerciseSpec,
     SelectionError,
     WeightInputs,
+    _realized,
     axis_key,
     select,
     weight,
@@ -330,14 +331,23 @@ def test_every_specification_is_realizable_as_the_pipeline_realizes_it() -> None
         assert 0 < printed_notes(config, spec) <= config.session.max_notes
 
 
-def test_a_root_is_realized_onto_the_strings_it_is_played_on() -> None:
-    """§7's axis is a pitch class; a family needs an absolute pitch (§5)."""
+def test_root_anchors_on_the_lowest_instrument_string() -> None:
+    """§5, §8: the root pins to the lowest *instrument* string, not the set's."""
+    bass6 = PROFILES["bass6"]  # lowest string open = B0 = 23
+    # pitch class of Bb (10) -> the lowest fret on the low B string sounding it,
+    # which is fret 11 -> Bb1 = 34 (23 + (10 - 23) % 12).
+    out = _realized({"root": 10}, bass6)
+    assert out["root"] == 34
+    assert out["root"] - bass6.tuning[0] == 11  # fret 11 on the low string
+    assert (out["root"] - bass6.tuning[0]) % 12 == (10 - bass6.tuning[0]) % 12
+
+
+def test_a_root_is_realized_onto_the_lowest_instrument_string() -> None:
+    """§5, §8: a family needs an absolute pitch, anchored on the low string."""
     config = scales_config(session=shape(scales=8))
+    open_pitch = config.instrument.tuning[0]
 
     for spec in specs_of(select(config, [], seeded(7))):
-        strings = spec.params["string_set"]
-        assert isinstance(strings, tuple)
-        open_pitch = config.instrument.tuning[strings[0]]
         root = spec.params["root"]
         assert isinstance(root, int)
         assert open_pitch <= root < open_pitch + 12
@@ -660,6 +670,15 @@ PER_SESSION = 2
 #: avoid a value, and uniformity is asserted everywhere.
 ROOMY_AXES = ("root", "scale_type")
 
+#: The string sets the simulation draws from. Each includes the lowest
+#: instrument string, because the root now anchors there (§5, §8, #156): a set
+#: that omitted string 0 would place the exercise beside the anchored root, and
+#: the resulting validity-gate rejections — a transitional artifact that E2
+#: removes with the `string_set` axis itself — would bias which roots survive
+#: and manufacture clumping the weighting never produced. Anchored coherently,
+#: the coverage weighting is measured on its own terms.
+SIM_STRING_SETS = "[[0, 1, 2, 3], [0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]]"
+
 #: Every axis the `scales` pool above varies, §7's and §8's alike.
 MEASURED_AXES = (
     "root",
@@ -675,7 +694,7 @@ MEASURED_AXES = (
 
 def simulate(seed: int) -> dict[str, list[list[str]]]:
     """200 sessions under one seed: the values each axis used, session by session."""
-    config = scales_config(session=shape(scales=PER_SESSION))
+    config = scales_config(session=shape(scales=PER_SESSION), string_sets=SIM_STRING_SETS)
     rng = seeded(seed)
     history: list[list[ExerciseSpec]] = []
     used: dict[str, list[list[str]]] = {axis: [] for axis in MEASURED_AXES}
@@ -720,10 +739,10 @@ def worst_window(sessions: list[list[str]], horizon: int) -> int:
 def test_two_hundred_sessions_distribute_near_uniformly() -> None:
     """Spec §14: the test that proves the clumping problem is solved.
 
-    Measured over 400 exercises: the worst-spread axis is `root` at 30 to 37
-    uses of each of its twelve values, a ratio of 1.23 where a perfectly even
+    Measured over 400 exercises: the worst-spread axis is `root` at 29 to 41
+    uses of each of its twelve values, a ratio of 1.41 where a perfectly even
     split would be 33.3 each. Four seeds put the worst ratio anywhere in the
-    file at 1.30. The bound below is 1.5 because uniform independent draws
+    file at 1.46. The bound below is 1.5 because uniform independent draws
     would routinely exceed it — 400 draws over twelve values has a standard
     deviation of 5.5, so a uniform run's extremes sit near 25 and 42, a ratio
     of about 1.7. The assertion therefore separates coverage-aware sampling
@@ -743,13 +762,13 @@ def test_no_value_recurs_within_the_horizon_more_often_than_the_weighting_permit
     *Recurrence at distance 1.* Under uniform independent draws, a value used
     in one session reappears in the next with probability `1 - (1 - 1/n)^k` for
     a pool of `n` values and `k` draws per session: 0.160 for the twelve roots
-    and 0.306 for the six scale types. Measured here: 0.023 and 0.161 — the
-    roots by a factor of seven, the scale types by a factor of two, which is
+    and 0.306 for the six scale types. Measured here: 0.057 and 0.144 — the
+    roots by a factor of three, the scale types by a factor of two, which is
     what a six-value pool has room for against two draws a session.
 
     *Concentration inside one horizon.* Fourteen sessions are twenty-eight
     draws, so an even spread gives each of the twelve roots 2.3 uses. The worst
-    window of this run gives one root 5; a uniform control drawn at the same
+    window of this run gives one root 6; a uniform control drawn at the same
     seed gives 7.
     """
     used = simulate(12345)
