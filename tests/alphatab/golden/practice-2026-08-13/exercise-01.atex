@@ -1,5 +1,5 @@
-\title "Chromatic 3-1-4-2, adjacent strings, descending, up one fret per cycle"
+\title "Chromatic 4-1-3-2, skipping one string"
 \tuning(C3 G2 D2 A1 E1 B0)
 \instrument(34)
 .
-\ts 2 4 \clef bass \tempo 60 \ro 9.3{lf 4 ac}.16 7.3{lf 2}.16 10.3{lf 5}.16 8.3{acc # lf 3 ac}.16 10.4{lf 4}.16 8.4{lf 2}.16 11.4{acc # lf 5 ac}.16 9.4{acc # lf 3}.16 | \rc 2 11.5{acc # lf 4}.16 9.5{acc # lf 2 ac}.16 12.5{lf 5}.16 10.5{lf 3}.16 11.5{acc # lf 4 ac}.16 9.5{acc # lf 2}.16 12.5{lf 5}.16 10.5{lf 3 ac}.16
+\ts 3 4 \clef bass \tempo 60 \ro 4.5{acc # lf 5 ac}.16{d} 1.5{lf 2}.32 3.5{lf 4}.16{d} 2.5{acc # lf 3 ac}.32 4.3{acc # lf 5}.16{d} 1.3{acc # lf 2}.32 3.3{lf 4 ac}.16{d} 2.3{lf 3}.32 4.1{lf 5}.16{d} 1.1{acc # lf 2 ac}.32 3.1{acc # lf 4}.16{d} 2.1{lf 3}.32 | \rc 2 4.1{lf 5 ac}.16{d} 1.1{acc # lf 2}.32 3.1{acc # lf 4}.16{d} 2.1{lf 3 ac}.32 4.3{acc # lf 5}.16{d} 1.3{acc # lf 2}.32 3.3{lf 4 ac}.16{d} 2.3{lf 3}.32 4.5{acc # lf 5}.16{d} 1.5{lf 2 ac}.32 3.5{lf 4}.16{d} 2.5{acc # lf 3}.32
