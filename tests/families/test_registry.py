@@ -54,11 +54,7 @@ ARPEGGIOS_SPEC: dict[str, object] = {
     "root": 33,
     "quality": "maj7",
     "inversion": "root",
-    "traversal": "across_strings",
-    "string_set": (0, 1, 2, 3),
     "pattern": "straight",
-    "range_octaves": 1,
-    "direction": "up",
 }
 
 INTERVALS_SPEC: dict[str, object] = {

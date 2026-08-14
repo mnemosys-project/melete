@@ -23,6 +23,7 @@ from melete.families._shared import (
     apply_direction,
     boxed,
     directed_by_cell,
+    octaves,
     string_set,
     there_and_back,
 )
@@ -162,9 +163,10 @@ def test_the_position_is_the_profile_s_and_not_a_constant_of_this_module() -> No
 # `string_set`: the strings the exercise is laid across, validated not repaired
 # --------------------------------------------------------------------------
 #
-# `arpeggios` and `intervals` still read `string_set`; `scales` no longer does
-# (epic #72 Task B2), so its error branches are unit-tested here at their source
-# rather than through whichever family happens to exercise them.
+# Epic #72 retired `string_set` (and `octaves`) from every family — extent is
+# emergent and coverage spans the whole instrument — so no family exercises these
+# helpers any more. They are unit-tested here at their source until the E2 cleanup
+# (mnemosys-project/melete#161) deletes both the helpers and these tests together.
 
 
 def test_a_string_set_must_be_a_non_empty_sequence() -> None:
@@ -183,6 +185,39 @@ def test_a_string_set_holds_only_integer_indices() -> None:
     read = Parameters("arpeggios", ("string_set",), {"string_set": (0, "1")})
     with pytest.raises(ValueError, match=r"string_set must hold integer string indices"):
         string_set(read, BASS6)
+
+
+def test_a_string_set_must_be_strictly_ascending() -> None:
+    read = Parameters("arpeggios", ("string_set",), {"string_set": (2, 1)})
+    with pytest.raises(ValueError, match=r"strictly ascending"):
+        string_set(read, BASS6)
+
+
+def test_a_string_set_must_lie_on_the_profile() -> None:
+    read = Parameters("arpeggios", ("string_set",), {"string_set": (0, 99)})
+    with pytest.raises(ValueError, match=r"is off profile"):
+        string_set(read, BASS6)
+
+
+def test_a_valid_string_set_is_returned_as_a_tuple() -> None:
+    read = Parameters("arpeggios", ("string_set",), {"string_set": (0, 1, 2, 3)})
+    assert string_set(read, BASS6) == (0, 1, 2, 3)
+
+
+# --------------------------------------------------------------------------
+# `octaves`: §7's enumerated `range_octaves` count (retired with `string_set`)
+# --------------------------------------------------------------------------
+
+
+def test_octaves_reads_an_enumerated_count() -> None:
+    read = Parameters("scales", ("range_octaves",), {"range_octaves": 2})
+    assert octaves(read) == 2
+
+
+def test_octaves_rejects_a_count_outside_the_range() -> None:
+    read = Parameters("scales", ("range_octaves",), {"range_octaves": 5})
+    with pytest.raises(ValueError, match=r"range_octaves must be one of"):
+        octaves(read)
 
 
 # --------------------------------------------------------------------------

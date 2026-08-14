@@ -630,10 +630,13 @@ def test_vocabulary_names_the_range_axes_it_deliberately_omits(
 ) -> None:
     """A list that looked exhaustive and was not would be read as one.
 
-    `root`, the fret numbers, the octave counts and the string sets are
-    validated against the instrument profile (§5) rather than against an
-    enumerated set, so they carry no registry entry — and a reader who could
-    not see that would conclude the tool has no such axes.
+    `root`, the fret numbers, the interval and the permutation are validated
+    against the instrument profile (§5) rather than against an enumerated set, so
+    they carry no registry entry — and a reader who could not see that would
+    conclude the tool has no such axes. Octave counts and string sets used to
+    join them here; epic #72 retired both from every family (extent is now
+    emergent and coverage spans the whole instrument), so no family reads them
+    and they no longer appear among the omitted range axes.
     """
     omitted = {axis for family in REGISTRY.values() for axis in family.axes}
     omitted.update(rhythm.AXES)
@@ -644,12 +647,10 @@ def test_vocabulary_names_the_range_axes_it_deliberately_omits(
     assert omitted == {
         "interval",
         "permutation",
-        "range_octaves",
         "root",
         "span",
         "start_fret",
         "start_string",
-        "string_set",
     }
     for axis in omitted:
         assert axis in out
