@@ -67,20 +67,6 @@ COUNT = 5
 #: The exercise numbers, for `pytest.mark.parametrize` and the golden filenames.
 NUMBERS = tuple(range(1, COUNT + 1))
 
-#: Epic #72 (coherent fretboard journeys) intentionally changes what these five
-#: exercises engrave — root anchoring, the up-and-down journeys, the removed
-#: geometry axes. The byte-for-byte goldens therefore drift on every
-#: output-changing task and are quarantined for the epic's duration; task F1
-#: (melete#152) removes this mark and re-freezes all five with the instructor's
-#: sign-off. `xfail(strict=False)` rather than `skip` on purpose: the test body
-#: still runs, so the emit paths it covers stay counted and the 100% coverage
-#: gate holds; `strict=False` tolerates the transitional runs where a not-yet-
-#: touched exercise still matches its old golden and the test xpasses.
-_GOLDEN_DRIFT = (
-    "Acceptance goldens intentionally drift during epic #72; re-frozen at task F1 "
-    "(melete#152) with instructor sign-off. See melete#162."
-)
-
 
 def _draw() -> list[Score]:
     """Redraw the frozen day in-process, exactly as `cli._generate` does.
@@ -116,14 +102,12 @@ def _golden(number: int) -> str:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason=_GOLDEN_DRIFT, strict=False)
 @pytest.mark.parametrize("number", NUMBERS)
 def test_each_exercise_reproduces_byte_for_byte(scores: list[Score], number: int) -> None:
     """Re-emitting the redrawn exercise is byte-identical to its frozen golden."""
     assert emit.emit_score(scores[number - 1]) == _golden(number)
 
 
-@pytest.mark.xfail(reason=_GOLDEN_DRIFT, strict=False)
 def test_the_book_reproduces_byte_for_byte(scores: list[Score]) -> None:
     """The combined book the day prints from is frozen alongside its exercises."""
     active = config.load(CONFIG)
@@ -232,11 +216,11 @@ def test_the_rendered_book_wraps_each_exercise_into_systems(
     so it tracks the even split rather than a hardcoded layout.
 
     The book is emitted fresh from the redrawn day rather than read from the frozen
-    `book.atex` golden: that golden is quarantined and drifted under epic #72
-    (melete#162) and F1/#152 re-freezes it, so pinning to its stale hardcoded
-    layout would test the golden, not the live emit -> render path. The score-level
-    layout is not honored for a single-track book, so the *track-level* element is
-    what matters and is what is asserted here.
+    `book.atex` golden: deriving `expected` from the live `emit_book` and
+    `_wrap_into_systems` tests the real emit -> render path rather than pinning to a
+    hardcoded layout baked into the golden text. The score-level layout is not
+    honored for a single-track book, so the *track-level* element is what matters
+    and is what is asserted here.
     """
     expected = " ".join(
         str(chunk)
