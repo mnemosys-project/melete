@@ -214,25 +214,37 @@ def test_the_frozen_book_renders_to_a_valid_gp(tmp_path: Path) -> None:
     assert gp.read_bytes()[:2] == b"PK"  # a .gp is a ZIP; this is its magic
 
 
-@pytest.mark.xfail(reason=_GOLDEN_DRIFT, strict=False)
 @pytest.mark.integration
 @pytest.mark.skipif(NODE_ON_PATH is None, reason=NO_NODE)
-def test_the_rendered_book_lays_out_one_system_per_exercise(
+def test_the_rendered_book_wraps_each_exercise_into_systems(
     scores: list[Score], tmp_path: Path
 ) -> None:
-    r"""The rendered `.gp` carries the per-exercise bar counts as its track layout.
+    r"""The rendered `.gp` carries the wrapped, per-exercise systems as its track layout.
 
-    This is the melete#138 fix proven end to end: `emit_book`'s `\track`
+    This is the melete#175 wrapping proven end to end: `emit_book`'s `\track`
     systemslayout directive must survive the real alphaTab toolchain and land as
-    the master track's `<SystemsLayout>` in the exported `Content/score.gpif`,
-    equal to `[bar_count(exercise) for exercise in the day]` — one system per
-    exercise, so the `\section` titles no longer overprint. The score-level layout
-    is not honored for a single-track book, so the *track-level* element is what
-    matters and is what is asserted here.
-    """
-    expected = " ".join(str(len(bar(score.voice, score.time_signature))) for score in scores)
+    the master track's `<SystemsLayout>` in the exported `Content/score.gpif`. Each
+    exercise's bar count is split into systems of `emit.BARS_PER_SYSTEM` bars
+    (remainder last) and the per-exercise chunk lists are concatenated in order, so
+    a long journey wraps across systems while a fresh system still begins at every
+    exercise boundary — the melete#138 `\section`-title separation is preserved.
 
-    book = (GOLDEN / "book.atex").read_text(encoding="utf-8")
+    The book is emitted fresh from the redrawn day rather than read from the frozen
+    `book.atex` golden: that golden is quarantined and drifted under epic #72
+    (melete#162) and F1/#152 re-freezes it, so pinning to its stale hardcoded
+    layout would test the golden, not the live emit -> render path. The score-level
+    layout is not honored for a single-track book, so the *track-level* element is
+    what matters and is what is asserted here.
+    """
+    expected = " ".join(
+        str(chunk)
+        for score in scores
+        for chunk in emit._wrap_into_systems(len(bar(score.voice, score.time_signature)))
+    )
+
+    active = config.load(CONFIG)
+    cover = emit.Cover(date=ON.isoformat(), instrument=active.instrument.name)
+    book = emit.emit_book(scores, cover)
     gp = render(book, tmp_path)
     with zipfile.ZipFile(gp) as archive:
         name = next(n for n in archive.namelist() if n.endswith("score.gpif"))

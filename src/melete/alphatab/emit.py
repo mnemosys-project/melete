@@ -150,6 +150,16 @@ REPEAT_CLOSE = "\\rc 2"
 #: is one `\section`, so nothing can overprint.
 SYSTEMS_LAYOUT_PROPERTY = "systemslayout"
 
+#: How many bars fill one system when an exercise is wrapped (melete#175). A long
+#: journey emitted as a single systemslayout entry (its whole bar count) makes
+#: alphaTab cram every bar onto one line; splitting the count into chunks of this
+#: size wraps the exercise across several systems instead. The remainder rides the
+#: last chunk (14 -> `4 4 4 2`, 6 -> `4 2`, 2 -> `2`). The chunks of one exercise
+#: never fuse with the next: each exercise's chunk list is emitted whole and in
+#: order, so a fresh system still begins at every exercise boundary and the
+#: melete#138 `\section`-title separation is preserved.
+BARS_PER_SYSTEM = 4
+
 #: The seven letters in ascending order, and the pitch class each names
 #: unaltered. A key signature adds sharps in the order F C G D A E B and flats in
 #: the order B E A D G C F; `_signature` walks these to name each letter's
@@ -540,16 +550,34 @@ def _exercise_bars(score: Score, section: str | None) -> list[str]:
     return bodies
 
 
-def _systems_layout_line(bar_counts: Sequence[int]) -> str:
-    r"""The `\track` directive giving each exercise its own system (melete#138).
+def _wrap_into_systems(bar_count: int) -> list[int]:
+    """One exercise's bar count split into systems of `BARS_PER_SYSTEM` (melete#175).
 
-    One `systemslayout` property per exercise, each its bar count, so alphaTab
-    breaks a new system at every exercise boundary instead of running short
-    exercises together three-bars-to-a-system. Emitted on a single, unnamed track
-    so it configures the book's one track rather than adding a second. See
-    `SYSTEMS_LAYOUT_PROPERTY` for why this must be track-level, not score-level.
+    Full systems first, the remainder last: 14 -> `[4, 4, 4, 2]`, 6 -> `[4, 2]`,
+    2 -> `[2]`, 8 -> `[4, 4]` (no trailing zero when the count divides evenly). An
+    exercise always has at least one bar, so the list is never empty.
     """
-    counts = " ".join(str(count) for count in bar_counts)
+    full, remainder = divmod(bar_count, BARS_PER_SYSTEM)
+    chunks = [BARS_PER_SYSTEM] * full
+    if remainder:
+        chunks.append(remainder)
+    return chunks
+
+
+def _systems_layout_line(bar_counts: Sequence[int]) -> str:
+    r"""The `\track` directive wrapping each exercise into ~4-bar systems (melete#175).
+
+    Each exercise's bar count is split into chunks of `BARS_PER_SYSTEM`
+    (`_wrap_into_systems`) and the per-exercise chunk lists are concatenated in
+    order, so alphaTab wraps a long journey across several systems while still
+    breaking a fresh system at every exercise boundary — short exercises never run
+    together and their `\section` titles never overprint (melete#138). Emitted on a
+    single, unnamed track so it configures the book's one track rather than adding a
+    second. See `SYSTEMS_LAYOUT_PROPERTY` for why this must be track-level, not
+    score-level, and `BARS_PER_SYSTEM` for the chunking rule.
+    """
+    chunks = [chunk for count in bar_counts for chunk in _wrap_into_systems(count)]
+    counts = " ".join(str(chunk) for chunk in chunks)
     return f'\\track "" {{ {SYSTEMS_LAYOUT_PROPERTY} {counts} }}'
 
 
@@ -594,10 +622,12 @@ def emit_book(scores: Sequence[Score], cover: Cover) -> str:
     meter, key, clef and tempo (spec §12). Bars are joined by `|` throughout,
     across exercise boundaries as well — alphaTab starts a new bar only at a `|`.
 
-    A `\\track` systems-layout directive precedes the bars, one entry per exercise
-    holding that exercise's bar count, so alphaTab gives each exercise its own
-    system rather than running short ones together and overprinting their
-    `\\section` titles (melete#138; see `SYSTEMS_LAYOUT_PROPERTY`).
+    A `\\track` systems-layout directive precedes the bars. Each exercise's bar
+    count is wrapped into chunks of `BARS_PER_SYSTEM` (melete#175) and the chunk
+    lists are concatenated in order, so alphaTab wraps a long journey across
+    several systems while still starting a fresh system at every exercise boundary
+    — short exercises never run together and overprint their `\\section` titles
+    (melete#138; see `SYSTEMS_LAYOUT_PROPERTY` and `BARS_PER_SYSTEM`).
     """
     if not scores:
         msg = "a book needs at least one exercise; a cover with no exercises is not a session"
