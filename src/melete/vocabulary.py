@@ -144,16 +144,6 @@ AXES: dict[str, dict[str, str]] = {
         "descending_pairs": "descending pairs",
         "alternating": "alternating",
     },
-    # --- §7: one axis, not two -----------------------------------------
-    # `chromatic` spells this ascending/descending/both and the other three
-    # families spell it up/down/up-down. They are the same axis and the
-    # selector samples it once, so the registry carries one set of
-    # identifiers and prints the prose form.
-    "direction": {
-        "up": "ascending",
-        "down": "descending",
-        "up_down": "up and down",
-    },
     # --- §7 `chromatic` -------------------------------------------------
     "string_traversal": {
         "adjacent": "adjacent strings",

@@ -66,17 +66,13 @@ horizon = 14
 roots = "all"
 scale_types = ["ionian", "dorian", "phrygian", "lydian", "mixolydian", "aeolian"]
 traversals = ["positional"]
-string_sets = [[0, 1, 2, 3], [1, 2, 3]]
 patterns = ["straight", "thirds"]
-octaves = [1, 2]
-directions = ["up", "down", "up_down"]
 tempo = [{slowest}, {fastest}]
 
 [pool.chromatic]
 permutations = [[1, 2, 3, 4], [1, 3, 2, 4], [2, 1, 4, 3], [4, 3, 2, 1]]
 start_strings = [0, 1, 2]
 start_frets = [1, 3, 5, 7]
-directions = ["up", "down", "up_down"]
 string_traversals = ["adjacent"]
 shifts = ["none", "fret_per_cycle"]
 spans = [3, 4]

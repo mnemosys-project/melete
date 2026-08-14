@@ -40,7 +40,6 @@ shape = { chromatic = 2, scales = 2, arpeggios = 2, intervals = 2 }
 permutations = [[1, 2, 3, 4], [1, 3, 2, 4], [2, 1, 4, 3], [4, 3, 2, 1]]
 start_strings = [0, 1, 2]
 start_frets = [1, 3, 5, 7]
-directions = ["up", "down", "up_down"]
 string_traversals = ["adjacent"]
 shifts = ["none", "fret_per_cycle"]
 spans = [3, 4]
@@ -49,33 +48,20 @@ spans = [3, 4]
 roots = "all"
 scale_types = ["ionian", "dorian", "phrygian", "lydian", "mixolydian", "aeolian"]
 traversals = ["positional"]
-string_sets = [[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5]]
 patterns = ["straight", "thirds", "groups_of_3"]
-octaves = [1, 2]
-directions = ["up", "down", "up_down"]
 
 [pool.arpeggios]
 roots = "all"
 qualities = ["maj", "min", "maj7", "min7", "dom7"]
 inversions = ["root", "first", "second"]
-traversals = ["positional"]
-string_sets = [[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5]]
 patterns = ["straight", "broken"]
-octaves = [1, 2]
-directions = ["up", "down", "up_down"]
 
 [pool.intervals]
 intervals = [3, 4, 5, 6]
 contexts = ["chromatic", "diatonic"]
 roots = "all"
 scale_types = ["ionian", "dorian", "aeolian"]
-# The string sets contain the lowest string, because since #72 Task E1 the root
-# is anchored on the lowest instrument string; a set that excludes it cannot
-# carry the anchored root, so an intervals pool built before E1 is now mostly
-# unrealizable. (Intervals still reads `string_set` until Task D2 migrates it.)
 string_skips = ["0", "1"]
-string_sets = [[0, 1, 2, 3], [0, 1, 2, 3, 4]]
-directions = ["up", "down", "up_down"]
 patterns = ["ascending_pairs", "descending_pairs", "alternating"]
 
 [pool.rhythm]
@@ -83,18 +69,15 @@ accent_patterns = ["none", "every_3"]
 note_value_patterns = ["straight", "long_short"]
 """
 
-#: One realizable `scales` specification, for the ignored-legacy-key test: A1
-#: Dorian, two octaves boxed across the four lowest strings. The retired rhythm
-#: keys are set per-test so the two params differ only in the keys #118 makes
-#: irrelevant and #119 has since retired.
+#: One realizable `scales` specification, for the ignored-legacy-key test: a
+#: positional A Dorian journey. The retired rhythm keys are set per-test so the
+#: two params differ only in the keys #118 makes irrelevant and #119 has since
+#: retired.
 SCALES_SPEC: dict[str, object] = {
     "root": 33,
     "scale_type": "dorian",
     "traversal": "positional",
-    "string_set": (0, 1, 2, 3),
     "pattern": "straight",
-    "range_octaves": 2,
-    "direction": "up",
     "accent_pattern": "none",
     "note_value_pattern": "straight",
 }

@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, replace
-from itertools import pairwise
 from itertools import permutations as _orderings
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
@@ -52,8 +51,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 #: One value of one parameter axis. Identifiers are strings, range-like axes
-#: are integers, and the two structured axes — `permutation` and `string_set` —
-#: are tuples of integers.
+#: are integers, and the structured `permutation` axis is a tuple of integers.
 AxisValue = str | int | tuple[int, ...]
 
 DEFAULT_COUNT = 5
@@ -84,7 +82,6 @@ ALL = "all"
 _FINGERS = (1, 2, 3, 4)
 _TEMPO_BOUNDS = 2
 _PITCH_CLASSES = 12
-_MAX_OCTAVES = 3
 _SMALLEST_INTERVAL = 2
 _LARGEST_INTERVAL = 10
 
@@ -226,14 +223,13 @@ class _Axis:
 
     `key` is the plural key written in TOML; `name` is the singular axis the
     selector samples. `universe` enumerates every accepted value — it is what
-    `"all"` expands to and what an unknown value is reported against — and is
-    `None` for axes whose validity is structural rather than enumerable.
+    `"all"` expands to and what an unknown value is reported against.
     """
 
     key: str
     name: str
     element: Callable[[InstrumentProfile, str, object], AxisValue]
-    universe: Callable[[InstrumentProfile], tuple[AxisValue, ...]] | None
+    universe: Callable[[InstrumentProfile], tuple[AxisValue, ...]]
 
 
 def _identifier(_profile: InstrumentProfile, key: str, raw: object) -> AxisValue:
@@ -257,40 +253,6 @@ def _permutation(_profile: InstrumentProfile, key: str, raw: object) -> AxisValu
     """One ordering of the four fretting fingers, as written in TOML."""
     entries = _list(key, raw)
     return tuple(_integer(f"{key}[{index}]", entry) for index, entry in enumerate(entries))
-
-
-def _string_set(profile: InstrumentProfile, key: str, raw: object) -> AxisValue:
-    """A subset of the instrument's strings, low to high.
-
-    Validated structurally rather than against an enumeration: every non-empty
-    subset of six strings is sixty-three values, and an error message listing
-    them is not one anybody could read. Naming the profile's index range *is*
-    naming the accepted values here, which is why §13's registry deliberately
-    excludes range-like axes.
-
-    Strictly ascending for the same reason a tuning is (decision #22): the
-    order of the indices is the instrument.
-    """
-    entries = _list(key, raw)
-    indices = tuple(_integer(f"{key}[{index}]", entry) for index, entry in enumerate(entries))
-    if not indices:
-        _fail(key, "is empty; a string set names at least one string")
-
-    strings = range(len(profile.tuning))
-    for position, index in enumerate(indices):
-        if index not in strings:
-            _fail(
-                f"{key}[{position}]",
-                f"string index {index} is out of range for profile {profile.name!r}",
-                strings,
-            )
-    for position, (lower, higher) in enumerate(pairwise(indices), start=1):
-        if higher <= lower:
-            _fail(
-                f"{key}[{position}]",
-                f"string indices must be strictly ascending: {higher} does not exceed {lower}",
-            )
-    return indices
 
 
 def _registry(key: str, axis: str) -> _Axis:
@@ -330,10 +292,8 @@ def _all_permutations(_profile: InstrumentProfile) -> tuple[AxisValue, ...]:
 
 
 # §7's axis columns, one `_Axis` per axis, shared between the families that
-# name the same axis. `range_octaves` is spelled `octaves` in TOML because
-# that is what §10's example writes.
+# name the same axis.
 _ROOT = _numeric("roots", "root", lambda _profile: range(_PITCH_CLASSES))
-_OCTAVES = _numeric("octaves", "range_octaves", lambda _profile: range(1, _MAX_OCTAVES + 1))
 _INTERVAL = _numeric(
     "intervals",
     "interval",
@@ -344,14 +304,12 @@ _SPAN = _numeric("spans", "span", lambda p: range(1, len(p.tuning) + 1))
 _START_FRET = _numeric("start_frets", "start_fret", lambda p: range(p.fret_count + 1))
 
 _PERMUTATION = _Axis("permutations", "permutation", _permutation, _all_permutations)
-_STRING_SET = _Axis("string_sets", "string_set", _string_set, None)
 
 _SCALE_TYPE = _registry("scale_types", "scale_type")
 _QUALITY = _registry("qualities", "quality")
 _INVERSION = _registry("inversions", "inversion")
 _TRAVERSAL = _registry("traversals", "traversal")
 _PATTERN = _registry("patterns", "pattern")
-_DIRECTION = _registry("directions", "direction")
 _STRING_TRAVERSAL = _registry("string_traversals", "string_traversal")
 _SHIFT = _registry("shifts", "shift")
 _CONTEXT = _registry("contexts", "context")
@@ -379,21 +337,16 @@ _AXES_BY_FAMILY: dict[str, tuple[_Axis, ...]] = {
         _PERMUTATION,
         _START_STRING,
         _START_FRET,
-        _DIRECTION,
         _STRING_TRAVERSAL,
         _SHIFT,
         _SPAN,
     ),
-    "scales": (_ROOT, _SCALE_TYPE, _TRAVERSAL, _STRING_SET, _PATTERN, _OCTAVES, _DIRECTION),
+    "scales": (_ROOT, _SCALE_TYPE, _TRAVERSAL, _PATTERN),
     "arpeggios": (
         _ROOT,
         _QUALITY,
         _INVERSION,
-        _TRAVERSAL,
-        _STRING_SET,
         _PATTERN,
-        _OCTAVES,
-        _DIRECTION,
     ),
     # `root` is read in both of §7's contexts and `scale_type` only in the
     # diatonic one, which is what "diatonic within root + scale" means: the
@@ -404,8 +357,6 @@ _AXES_BY_FAMILY: dict[str, tuple[_Axis, ...]] = {
         _ROOT,
         _SCALE_TYPE,
         _STRING_SKIP,
-        _STRING_SET,
-        _DIRECTION,
         _PATTERN,
     ),
 }
@@ -428,11 +379,9 @@ def _axis_values(
     raw: object,
 ) -> tuple[AxisValue, ...]:
     """Every candidate value of one axis, validated and in the written order."""
-    universe = None if axis.universe is None else axis.universe(profile)
+    universe = axis.universe(profile)
 
     if raw == ALL:
-        if universe is None:
-            _fail(key, f'has no "{ALL}" shorthand; list the values explicitly')
         return universe
 
     entries = _list(key, raw)
@@ -443,7 +392,7 @@ def _axis_values(
     for index, entry in enumerate(entries):
         element_key = f"{key}[{index}]"
         value = axis.element(profile, element_key, entry)
-        if universe is not None and value not in universe:
+        if value not in universe:
             _fail(element_key, f"unknown value {value!r}", universe)
         values.append(value)
     return tuple(values)

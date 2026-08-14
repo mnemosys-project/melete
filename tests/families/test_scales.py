@@ -126,9 +126,10 @@ def test_params_travel_inside_the_score() -> None:
 
 
 def test_extra_axes_are_carried_untouched() -> None:
-    # The retired geometry axes may still arrive from config until Task E2
-    # migrates it, and §8's rhythm axes always do. The family reads neither and
-    # carries both into the Score untouched (the existing contract).
+    # The retired geometry axes no longer arrive from config (Task E2 removed
+    # them), but a replayed pre-E2 session.json may still carry them, and §8's
+    # rhythm axes always do. The family reads neither and carries both into the
+    # Score untouched (the existing contract).
     spec = params(direction="up", string_set=(0, 1, 2, 3), range_octaves=2, subdivision="triplet")
     assert generate(BASS6, spec).params == spec
 

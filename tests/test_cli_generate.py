@@ -57,9 +57,9 @@ TODAY = date.today()
 # A working configuration (spec §10), as a template the odd test varies
 # --------------------------------------------------------------------------
 
-#: Two families, both carrying a tuple axis — `string_set` and `permutation` —
-#: because those are the values that travel furthest through the pipeline. No
-#: `shape`, so `--count` is free to override the count (see the shape test).
+#: Two families; `chromatic` carries the `permutation` tuple axis, the value
+#: that travels furthest through the pipeline. No `shape`, so `--count` is free
+#: to override the count (see the shape test).
 SESSION = """\
 count = 2
 horizon = 14
@@ -69,10 +69,7 @@ SCALES = """\
 roots = "all"
 scale_types = ["ionian", "dorian", "phrygian", "lydian", "mixolydian", "aeolian"]
 traversals = ["positional"]
-string_sets = [[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5]]
 patterns = ["straight", "thirds"]
-octaves = [1, 2]
-directions = ["up", "down", "up_down"]
 """
 
 TEMPLATE = """\
@@ -89,7 +86,6 @@ profile = "bass6"
 permutations = [[1, 2, 3, 4], [1, 3, 2, 4], [2, 1, 4, 3], [4, 3, 2, 1]]
 start_strings = [0, 1, 2]
 start_frets = [1, 3, 5, 7]
-directions = ["up", "down", "up_down"]
 string_traversals = ["adjacent"]
 shifts = ["none", "fret_per_cycle"]
 spans = [3, 4]
