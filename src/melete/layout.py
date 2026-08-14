@@ -55,7 +55,10 @@ _SUBDIVISION_FOR_CELL: dict[int, str] = {
     6: "sextuplet",
 }
 
-#: Sane beats-per-bar; a hard filter that outranks even-M (spec §4.5).
+#: Sane beats-per-bar; a hard filter that outranks even-M (spec §4.5). 2/4 stays
+#: in the whitelist so a genuinely one-beat exercise still tiles (span=1 chromatic
+#: repeats its apex cell to 2/4 x 1), but it is demoted to a strict last resort in
+#: the ranking below — never chosen when any 3/4, 4/4 or 6/4 fit exists (melete#174).
 _SANE_BEATS: tuple[int, ...] = (2, 3, 4, 6)
 
 
@@ -79,16 +82,18 @@ class LayoutPlan:
 def _candidates(beats: int, seam_beat: int | None) -> list[tuple[int, int]]:
     """Every ``(b, M)`` with ``b*M == beats`` and ``b`` sane, best-first.
 
-    Ranked (spec §4.5): even ``M`` first, then a bar boundary on the seam, then
-    larger ``b`` (fuller bars, fewer lines).
+    Ranked (spec §4.5, melete#174): 2/4 last of all — a strict last resort that
+    wins only when it is the sole candidate (a one-beat exercise); then even ``M``,
+    then a bar boundary on the seam, then larger ``b`` (fuller bars, fewer lines).
     """
     pairs = [(b, beats // b) for b in _SANE_BEATS if beats % b == 0]
 
-    def rank(pair: tuple[int, int]) -> tuple[int, int, int]:
+    def rank(pair: tuple[int, int]) -> tuple[int, int, int, int]:
         b, m = pair
+        last_resort = 1 if b == 2 else 0
         even = 0 if m % 2 == 0 else 1
         on_seam = 0 if (seam_beat is not None and seam_beat % b == 0) else 1
-        return (even, on_seam, -b)
+        return (last_resort, even, on_seam, -b)
 
     return sorted(pairs, key=rank)
 
