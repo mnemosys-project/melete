@@ -276,6 +276,42 @@ def boxed(
     return places
 
 
+def box(
+    profile: InstrumentProfile,
+    pitches: Sequence[int],
+    strings: tuple[int, ...],
+    anchors: tuple[int, ...],
+    family: str,
+    axes: str,
+) -> list[tuple[int, int]]:
+    """Place `pitches` under one hand anchored at `anchors[0]` (spec §4).
+
+    Each pitch takes the position within `strings` nearest the anchor base fret,
+    ties to the lower fret then the lower string. The result must fit one
+    `position_span`, or this raises — the anchor is pinned, so unlike the
+    superseded `boxed` it never drifts off the root to minimise travel. Two
+    anchors are the #67 two-hand seam and are not realized here.
+    """
+    if len(anchors) != 1:
+        msg = (
+            f"box: {len(anchors)} anchors is the two-hand seam owned by #67; "
+            f"this epic lays out one hand"
+        )
+        raise NotImplementedError(msg)
+    base = anchors[0]
+    choices = [_reachable(profile, pitch, strings, family, axes) for pitch in pitches]
+    places = [min(c, key=lambda p: (abs(p[1] - base), p[0])) for c in choices]
+    span = hand_span(fret for _string, fret in places)
+    if span > profile.position_span:
+        msg = (
+            f"{family}: the layout anchored at fret {base} spans {span} frets against a "
+            f"position of {profile.position_span} on profile {profile.name!r}: {axes} cannot "
+            f"all be satisfied under one hand. §9 resamples this rather than engraving a shift"
+        )
+        raise ValueError(msg)
+    return places
+
+
 def there_and_back[T](items: Sequence[T]) -> list[T]:
     """`items` forward and then back, without replaying the turnaround.
 
