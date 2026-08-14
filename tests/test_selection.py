@@ -518,13 +518,20 @@ def test_a_chromatic_context_exercise_does_not_push_a_scale_type_down() -> None:
 
 
 def test_an_over_constrained_pool_names_what_could_not_be_satisfied() -> None:
-    """`string_skip = 2` needs two strings three apart; a three-string set has none."""
+    """A chromatic second skipping two strings can never place its partner.
+
+    The interval journey (epic #72) puts the partner exactly `string_skip + 1`
+    strings above the lower note, which is a jump of three strings here; two
+    semitones cannot span that, so the partner runs below the nut on every draw
+    and §9 exhausts the pool loudly rather than settling for a nearer string.
+    """
     config = make_config(
         section(
             "intervals",
             INTERVALS_AXES,
+            contexts='["chromatic"]',
+            intervals="[2]",
             string_skips='["2"]',
-            string_sets="[[0, 1, 2], [1, 2, 3], [3, 4, 5]]",
         ),
         session=shape(intervals=1),
     )
@@ -534,7 +541,7 @@ def test_an_over_constrained_pool_names_what_could_not_be_satisfied() -> None:
 
     message = str(raised.value)
     assert "string_skip" in message
-    assert "string_set" in message
+    assert "partner" in message
     assert str(MAX_ATTEMPTS) in message
 
 
@@ -557,14 +564,14 @@ def test_an_exercise_over_max_notes_is_resampled_and_then_reported() -> None:
 def test_an_exercise_over_max_fret_span_is_resampled_and_then_reported() -> None:
     """Issue #57: nothing bounded how far the fretting hand had to travel.
 
-    `intervals` walks a whole octave of lower notes along one string, so its
-    cycle covers twelve frets whatever else is drawn. A four-fret bound is
-    therefore a pool nothing in that family can satisfy, and §9 reports it by
-    name rather than engraving a reach no hand has.
+    The interval journey (epic #72) boxes its lower voice across the strings and
+    lifts the partner above it, so even the most compact draw travels several
+    frets. A two-fret bound is therefore a pool nothing in that family can
+    satisfy, and §9 reports it by name rather than engraving a reach no hand has.
     """
     config = make_config(
         section("intervals", INTERVALS_AXES),
-        session=f"{shape(intervals=1)}max_fret_span = 4\n",
+        session=f"{shape(intervals=1)}max_fret_span = 2\n",
     )
 
     with pytest.raises(SelectionError) as raised:

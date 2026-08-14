@@ -67,8 +67,6 @@ INTERVALS_SPEC: dict[str, object] = {
     "root": 33,
     "scale_type": "dorian",
     "string_skip": "1",
-    "string_set": (0, 1, 2, 3),
-    "direction": "up",
     "pattern": "ascending_pairs",
 }
 

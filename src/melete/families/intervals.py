@@ -39,34 +39,38 @@ time, so a 9th is a major 9th and an 8th is the octave.
 **`string_skip` is a hard constraint on position, not a preference.** The two
 notes of a pair are placed exactly `string_skip + 1` strings apart, the lower
 note on the lower string. A specification that cannot be placed at that
-distance within `string_set` is **invalid** and raises, naming what could not
-be satisfied; §9's validity gate resamples it. Quietly settling for an adjacent
-string would engrave a plausible exercise that is not the one that was
-requested, which is the §13 failure mode this project exists to avoid — and it
-would be undetectable from the notation staff, because the pitches would be
-right.
+distance on the instrument — a lower note off the neck, or a partner that runs
+off the top or below the nut on its string — is **invalid** and raises, naming
+what could not be satisfied; §9's validity gate resamples it. Quietly settling
+for an adjacent string would engrave a plausible exercise that is not the one
+that was requested, which is the §13 failure mode this project exists to avoid
+— and it would be undetectable from the notation staff, because the pitches
+would be right.
 
-**One string pair, held for the whole exercise.** The pair is chosen once, from
-the pairs `string_set` offers at the required distance, and every lower note
-goes on its lower string and every upper note on its upper string. That is what
-makes the exercise a string-skipping drill rather than a scale that happens to
-cross strings, and it is the only layout under which the *transition between*
-pairs also respects the skip: a walk that advanced one string per pair would
-put the top of one pair one string away from the bottom of the next, which is
-the adjacent crossing a skip-1 specification exists to forbid. Of the pairs
-that can carry every note, the lowest wins — deterministic all the way down,
-which is what reproducibility from a session log needs.
+**The journey climbs the instrument, one string pair at a time (epic #72).**
+Every exercise is a computed outer-to-outer up-and-down journey: the lower notes
+box across the *lower* strings under the shared fingering journey
+(`journey.boxed_span`), and every lower note's partner sits exactly
+`string_skip + 1` strings above it, so the upper voice reaches the opposite outer
+string. The lower voice is placed on a profile sliced to leave that much room
+above — the top `string_skip + 1` strings are the partner's, never the lower
+note's — which is what lets the pair distance stay a hard constraint while the
+two voices together cover the whole instrument, low outer string to high outer
+string, with no gap. Extent is governed by reaching the opposite outer string and
+the octave count is emergent (spec §5), replacing the sampled
+`string_set`/`direction`/octave draws.
 
-**`pattern` orders the two notes inside a pair; `direction` orders the pairs.**
-This is the one place this family turns `direction` round from the way `scales`
-and `arpeggios` use it, and deliberately. There a pattern is a window slid along
-the scale, and the retrograde of the whole sequence genuinely *is* the
-descending figure. Here the pattern names which note of the pair comes first, so
-reversing the whole note sequence would turn `descending_pairs` into ascending
-ones while §12's cover page still printed "descending pairs" — a sheet that is
-not the exercise it names. `alternating` turns every other pair around, counted
-over the pairs as played, so `up_down` keeps alternating through the turnaround
-rather than restarting.
+**`pattern` orders the two notes inside a pair; the pairs always go up and
+down.** The pairs are ordered by the single direction this epic produces —
+`journey.updown`, ascend then the retrograde of the ascent — so `direction` is
+no longer sampled or read. `pattern` still names which note of a pair comes
+first: `ascending_pairs` plays the lower note first, `descending_pairs` the
+upper, and `alternating` turns every other pair around, counted over the pairs
+as played so it keeps alternating through the turnaround rather than restarting.
+Reversing the whole note sequence instead would turn `descending_pairs` into
+ascending ones while §12's cover page still printed "descending pairs" — a sheet
+that is not the exercise it names — which is why `pattern` is an intra-pair
+order and the journey supplies the retrograde around it.
 
 ## The key
 
@@ -98,20 +102,19 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory, vocabulary
+from melete.families import journey
 from melete.families._shared import (
     Parameters,
-    apply_direction,
     layout_hints,
     realizable,
-    string_set,
 )
+from melete.instrument import InstrumentProfile
 from melete.layout import Lever
 from melete.score import Note, Score
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from melete.instrument import InstrumentProfile
     from melete.layout import LayoutHints
     from melete.score import Voice
 
@@ -139,18 +142,18 @@ NOTE_DURATION = Fraction(1, 4)
 
 INSTRUCTION = "Mute the strings you skip over; both notes of a pair should speak equally."
 
-#: §7's axis columns. Named here so a missing parameter can list what the
-#: family expected rather than only what it did not find. `root` is read in
-#: both contexts — every exercise starts somewhere — and `scale_type` only in
-#: the diatonic one, which is what §7's "diatonic within root + scale" says.
+#: §7's axis columns, less the two the journey redesign retired (epic #72):
+#: `string_set` (coverage is the whole instrument now, §4/§5) and `direction`
+#: (always up-and-down, §5). Named here so a missing parameter can list what the
+#: family expected rather than only what it did not find. `root` is read in both
+#: contexts — every exercise starts somewhere — and `scale_type` only in the
+#: diatonic one, which is what §7's "diatonic within root + scale" says.
 AXES = (
     "interval",
     "context",
     "root",
     "scale_type",
     "string_skip",
-    "string_set",
-    "direction",
     "pattern",
 )
 
@@ -173,6 +176,12 @@ _SEMITONES_PER_OCTAVE = len(theory.PITCH_CLASSES)
 #: beat's worth of this exercise is two notes. Named because the count and the
 #: two-note construction below must not be able to disagree.
 _NOTES_PER_PAIR = 2
+
+#: The axes the journey placement names when a note runs off the neck (§13).
+#: `journey.boxed_span` and the partner placement below raise with this rather
+#: than a sentence each, because naming *this family's* axes is the whole of
+#: what the error is for.
+_JOURNEY_AXES = "interval, context, root, scale_type and string_skip"
 
 #: §7's `interval` column, 2nd through 10th, and the prose §12's cover page
 #: prints for each. One table, so the accepted set and the display names cannot
@@ -217,78 +226,98 @@ def _interval(read: Parameters) -> int:
     return value
 
 
-def _chromatic_pairs(root: int, interval: int) -> list[tuple[int, int]]:
-    """One octave of lower notes a semitone apart, each with its exact partner."""
+def _chromatic_pairs(root: int, interval: int, count: int) -> list[tuple[int, int]]:
+    """`count` lower notes a semitone apart, each with its exact partner."""
     step = _semitones(interval)
-    return [(root + offset, root + offset + step) for offset in range(_SEMITONES_PER_OCTAVE + 1)]
+    return [(root + offset, root + offset + step) for offset in range(count)]
 
 
-def _diatonic_pairs(root: int, scale_type: str, interval: int) -> list[tuple[int, int]]:
-    """One octave of scale degrees, each with the degree `interval` above it.
+def _diatonic_pairs(root: int, scale_type: str, interval: int, count: int) -> list[tuple[int, int]]:
+    """`count` scale degrees climbing from the root, each with the degree above it.
 
     The upper note is `interval - 1` *degrees* away, not a fixed semitone
     count, which is what makes a diatonic third minor on some degrees and major
-    on others. Enough octaves are built that the top of the cycle still has a
-    partner to reach for; the closing octave `scale_pitches` appends is dropped
-    because the degrees repeat past it anyway.
+    on others. Enough octaves are built that the top pair still has a partner to
+    reach for; the closing octave `scale_pitches` appends does not matter because
+    the degrees repeat past it anyway.
     """
     degrees_per_octave = len(theory.SCALES[scale_type])
-    span = -(-interval // degrees_per_octave) + 1
-    degrees = theory.scale_pitches(root, scale_type, span)[: span * degrees_per_octave]
     step = interval - 1
-    return [(degrees[index], degrees[index + step]) for index in range(degrees_per_octave + 1)]
+    octaves = -(-(count + step + 1) // degrees_per_octave) + 1
+    degrees = theory.scale_pitches(root, scale_type, octaves)
+    return [(degrees[index], degrees[index + step]) for index in range(count)]
 
 
-def _frets(profile: InstrumentProfile, pitches: Sequence[int], string: int) -> list[int] | None:
-    """Where `string` sounds each pitch, or None if it cannot sound them all."""
-    frets = [pitch - profile.tuning[string] for pitch in pitches]
-    if any(fret < 0 or fret > profile.fret_count for fret in frets):
-        return None
-    return frets
-
-
-def _placed(
+def _place_journey(
     profile: InstrumentProfile,
-    pairs: Sequence[tuple[int, int]],
-    strings: tuple[int, ...],
+    supply: Sequence[tuple[int, int]],
     skip: int,
-) -> tuple[tuple[int, int], list[int], list[int]]:
-    """The string pair the exercise is played on, and the frets on each of them.
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """Place the leading run of `supply` pairs that fits one hand across the strings.
 
-    Both failures are specification errors rather than repairs (§13): a
-    `string_set` offering no pair at the required distance, and a pair distance
-    no two strings in the set can carry the notes at. Neither is resolved by
-    moving a note to a string it was not asked for — §9's validity gate
-    resamples an over-constrained draw, which is a different thing from
-    engraving a nearby exercise and calling it the one requested.
+    `supply` is a long ascending run of `(lower, upper)` pairs; the journey uses
+    only its leading prefix — as many as fit one hand position — so the extent and
+    octave count are emergent, governed by reaching the opposite outer string
+    rather than a sampled target (spec §5). The lower voice is boxed across the
+    *lower* strings under `journey.boxed_span`, and each upper note then sits
+    exactly `skip + 1` strings above its partner, so the upper voice reaches the
+    high outer string and the two together cover the whole instrument with no gap
+    (spec §4). The lower voice is laid on a profile sliced to leave the partner's
+    strings free at the top — the pair distance stays a hard constraint, never
+    satisfied by moving the lower note up into the partner's range.
+
+    A partner that runs off the neck raises, naming the axes that could not all be
+    satisfied (§13); §9 resamples an over-constrained draw rather than engraving a
+    nearer exercise. The returned lists are the used prefix, one place per pair.
     """
     distance = skip + 1
-    candidates = [(low, low + distance) for low in strings if low + distance in strings]
-    if not candidates:
+    strings = len(profile.tuning)
+    lower_strings = strings - distance
+    if lower_strings < 1:
         msg = (
-            f"{_FAMILY}: string_skip {skip} needs two strings {distance} apart, and string_set "
-            f"{list(strings)} on profile {profile.name!r} has no such pair. string_skip is a "
-            f"hard constraint on where a pair is played, not a preference: settling for a "
-            f"nearer string would engrave a plausible exercise that is not the one specified"
+            f"{_FAMILY}: string_skip {skip} needs a partner {distance} strings above every lower "
+            f"note, but profile {profile.name!r} has only {strings} strings, leaving no room for "
+            f"the lower voice to climb. string_skip is a hard constraint on where a pair is "
+            f"played, not a preference; §9 resamples this rather than narrowing the skip"
         )
         raise ValueError(msg)
 
-    lows = [low for low, _high in pairs]
-    highs = [high for _low, high in pairs]
-    for low_string, high_string in candidates:
-        low_frets = _frets(profile, lows, low_string)
-        high_frets = _frets(profile, highs, high_string)
-        if low_frets is not None and high_frets is not None:
-            return (low_string, high_string), low_frets, high_frets
-
-    msg = (
-        f"{_FAMILY}: no string pair {distance} apart within string_set {list(strings)} can carry "
-        f"pitches {lows[0]}-{lows[-1]} against {highs[0]}-{highs[-1]} on profile "
-        f"{profile.name!r}, which has frets 0 to {profile.fret_count}. interval, context, root, "
-        f"string_set and string_skip cannot all be satisfied at once; §9 resamples this rather "
-        f"than moving a note to a string it was not asked for"
+    # `journey.boxed_span` boxes the lower voice across the lower strings only; the
+    # top `distance` strings are the partner's. Slicing the tuning is what pins the
+    # pair distance while the journey stays the shared one every family computes.
+    lower_profile = InstrumentProfile(
+        profile.name, profile.tuning[:lower_strings], profile.fret_count, profile.position_span
     )
-    raise ValueError(msg)
+    lows = [low for low, _high in supply]
+
+    # The journey anchors on the low outer string; if its first note cannot sound
+    # there the ascent has nowhere to start, and `boxed_span` would otherwise fault
+    # on an empty anchor search. Name it as the §13 over-constraint it is.
+    base_fret = lows[0] - lower_profile.tuning[0]
+    if not 0 <= base_fret <= profile.fret_count:
+        msg = (
+            f"{_FAMILY}: the journey's first note {lows[0]} needs fret {base_fret} on the low "
+            f"string of {profile.name!r} (frets 0..{profile.fret_count}); {_JOURNEY_AXES} cannot "
+            f"all be satisfied. §9 resamples this rather than starting the journey off the neck"
+        )
+        raise ValueError(msg)
+
+    used, low_places = journey.boxed_span(lower_profile, lows, _FAMILY, _JOURNEY_AXES)
+
+    high_places: list[tuple[int, int]] = []
+    for (_low, high), (low_string, _low_fret) in zip(supply[: len(used)], low_places, strict=True):
+        high_string = low_string + distance
+        high_fret = high - profile.tuning[high_string]
+        if not 0 <= high_fret <= profile.fret_count:
+            msg = (
+                f"{_FAMILY}: the partner {high} needs fret {high_fret} on string {high_string} of "
+                f"{profile.name!r} (frets 0..{profile.fret_count}); a string_skip {skip} pair "
+                f"cannot be placed there. {_JOURNEY_AXES} cannot all be satisfied at once, and §9 "
+                f"resamples this rather than moving the note to a string it was not asked for"
+            )
+            raise ValueError(msg)
+        high_places.append((high_string, high_fret))
+    return low_places, high_places
 
 
 def _plays_downward(pattern: str, position: int) -> bool:
@@ -300,16 +329,18 @@ def _plays_downward(pattern: str, position: int) -> bool:
     return position % 2 == 1
 
 
-def _title(root: int, named: str, interval: int, skip: str, pattern: str, direction: str) -> str:
+def _title(root: int, named: str, interval: int, skip: str, pattern: str) -> str:
     """The plain-language name §12's cover page prints, built from the registry.
 
     `named` is what the context is called: the scale for a diatonic sequence,
-    and the word "chromatic" for one with no scale to name.
+    and the word "chromatic" for one with no scale to name. The direction is no
+    longer stated — every journey is up-and-down (epic #72), so a word that never
+    varies would only be noise on the cover page.
     """
     return (
         f"{theory.PITCH_CLASSES[root % _SEMITONES_PER_OCTAVE]} {named} "
         f"{INTERVAL_NAMES[interval]}, {vocabulary.display('string_skip', skip)}, "
-        f"{vocabulary.display('pattern', pattern)}, {vocabulary.display('direction', direction)}"
+        f"{vocabulary.display('pattern', pattern)}"
     )
 
 
@@ -323,24 +354,33 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     silent default.
 
     The §4.2 hints report the pair as the natural cell — two notes to a beat —
-    and, for an `up_down` exercise, the note index of the apex the pairs turn
-    around at, so the fitter's apex levers know where to act. A one-directional
-    exercise has no such seam.
+    and the note index of the apex the pairs turn around at, so the fitter's apex
+    levers know where to act. Every journey is up-and-down now (epic #72), so the
+    seam is always present.
     """
     read = Parameters(_FAMILY, AXES, params)
     interval = _interval(read)
     context = read.identifier("context")
     root = read.integer("root")
+    skip = read.identifier("string_skip")
+    pattern = realizable(read, "pattern", _PATTERNS)
+
+    # A generous ascending supply of pairs; `journey.boxed_span` consumes only
+    # the leading run that fits one hand position across the strings and stops, so
+    # the extent is emergent (spec §5) and this length just has to exceed what any
+    # one box can hold — a box spans at most every string, `position_span + 1`
+    # frets each.
+    supply = len(profile.tuning) * (profile.position_span + 2)
 
     if context == _DIATONIC:
         scale_type = read.identifier("scale_type")
-        pairs = _diatonic_pairs(root, scale_type, interval)
+        pairs = _diatonic_pairs(root, scale_type, interval, supply)
         named = vocabulary.display("scale_type", scale_type)
         # §10a: the intervals are degrees of this scale, so they are spelled by
         # it. `root` reduces to a pitch class because A1 and A2 are the same key.
         key: theory.Key | None = theory.Key(root % _SEMITONES_PER_OCTAVE, scale_type)
     else:
-        pairs = _chromatic_pairs(root, interval)
+        pairs = _chromatic_pairs(root, interval, supply)
         named = vocabulary.display("context", context)
         # Stated rather than left to the default: a chromatic interval sequence
         # asserts no tonal center, so this branch is tier 3 by definition (§10a)
@@ -348,31 +388,27 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         # it would be in the diatonic branch, which has a key to give.
         key = None
 
-    skip = read.identifier("string_skip")
-    strings = string_set(read, profile)
-    direction = read.identifier("direction")
-    pattern = realizable(read, "pattern", _PATTERNS)
-
-    # The identifiers are the digit strings "0", "1" and "2" (§7 writes them as
-    # numbers; `vocabulary` carries them like every other axis), and they have
-    # been validated against the registry, so this conversion cannot surprise.
-    placement, low_frets, high_frets = _placed(profile, pairs, strings, int(skip))
-    low_string, high_string = placement
+    low_places, high_places = _place_journey(profile, pairs, int(skip))
+    # Only the leading prefix `boxed_span` used is engraved (its length is one
+    # place per pair); the rest of the supply was never on the neck.
+    pairs = pairs[: len(low_places)]
 
     voice: Voice = []
-    for position, index in enumerate(apply_direction(range(len(pairs)), direction)):
+    # The journey is the single direction this epic produces: ascend the pairs,
+    # then the retrograde of the ascent without replaying the apex pair (§5).
+    for position, index in enumerate(journey.updown(range(len(pairs)), cell=1)):
         lower = Note(
             pitch=pairs[index][0],
-            string=low_string,
-            fret=low_frets[index],
+            string=low_places[index][0],
+            fret=low_places[index][1],
             duration=NOTE_DURATION,
             finger=None,
             accent=False,
         )
         upper = Note(
             pitch=pairs[index][1],
-            string=high_string,
-            fret=high_frets[index],
+            string=high_places[index][0],
+            fret=high_places[index][1],
             duration=NOTE_DURATION,
             finger=None,
             accent=False,
@@ -380,7 +416,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         voice.extend((upper, lower) if _plays_downward(pattern, position) else (lower, upper))
 
     score = Score(
-        title=_title(root, named, interval, skip, pattern, direction),
+        title=_title(root, named, interval, skip, pattern),
         instruction=INSTRUCTION,
         instrument=profile,
         time_signature=DEFAULT_TIME_SIGNATURE,
@@ -389,19 +425,23 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         key=key,
         params=dict(params),
     )
-    return score, _hints(len(pairs), direction)
+    return score, _hints(len(pairs))
 
 
-def _hints(pair_count: int, direction: str) -> LayoutHints:
+def _hints(pair_count: int) -> LayoutHints:
     """The §4.2 layout hints for a realized cycle.
 
-    The cell is the pair, two notes to a beat. `up_down` turns around on the top
-    pair of the ascending pass — played once — so the seam is that pair's last
-    note, at the end of the `pair_count` pairs the pass sounds; `up` and `down`
-    have no turnaround, so they offer only the trailing add/drop.
+    The cell is the pair, two notes to a beat. The journey turns around on the
+    top pair of the ascending pass — played once — so the seam is that pair's
+    last note, at the end of the `pair_count` pairs the pass sounds. Every
+    journey is up-and-down (epic #72), so the apex levers are always offered
+    alongside the trailing add/drop.
     """
-    seam = _NOTES_PER_PAIR * pair_count - 1 if direction == "up_down" else None
-    levers: tuple[Lever, ...] = (Lever.ADD_ONE, Lever.DROP_ONE)
-    if seam is not None:
-        levers = (*levers, Lever.APEX_REPEAT, Lever.APEX_OMIT)
+    seam = _NOTES_PER_PAIR * pair_count - 1
+    levers: tuple[Lever, ...] = (
+        Lever.ADD_ONE,
+        Lever.DROP_ONE,
+        Lever.APEX_REPEAT,
+        Lever.APEX_OMIT,
+    )
     return layout_hints(cell=_NOTES_PER_PAIR, seam=seam, levers=levers)
