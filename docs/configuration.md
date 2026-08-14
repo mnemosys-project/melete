@@ -176,6 +176,18 @@ from, plus an optional `tempo`. Each key is the **plural** TOML spelling; the
 axis it feeds is the singular name that appears in `session.json` and in
 `melete families` output.
 
+**The exercise geometry is now computed, not sampled.** Every family draws one
+coherent up-and-down journey: anchored at the root on the lowest string, it
+traverses outer string to opposite outer string and returns as the exact
+retrograde, with the octave count *emergent* from reaching the top string rather
+than a target. The `directions`, `string_sets` and `octaves` axes the old
+sampled model carried are therefore **gone from every family** — direction is
+always up-and-down, string coverage is the whole instrument, and octaves are
+computed — and `arpeggios` also drops `traversals`, laying every quality out
+from one canonical seed shape. A `config.toml` that still lists any of those keys
+is rejected as an unknown key by the section that no longer reads it, the same
+way any misspelling is. `scales` keeps `traversals` as its fingering-style axis.
+
 ### `tempo`
 
 | Key | Type | Default | Accepted |
@@ -203,7 +215,6 @@ is a modifier rather than a family.
 | `permutations` | `permutation` | lists of the four fingers `1`–`4`; the universe is all 24 orderings. `"all"` accepted |
 | `start_strings` | `start_string` | integers `0` to one less than the string count |
 | `start_frets` | `start_fret` | integers `0` to `fret_count`, inclusive; 0 is the open string |
-| `directions` | `direction` | `up`, `down`, `up_down` |
 | `string_traversals` | `string_traversal` | `adjacent`, `skip_1`, `single_string` |
 | `shifts` | `shift` | `none`, `fret_per_cycle`, `position_per_cycle` |
 | `spans` | `span` | integers `1` to the string count |
@@ -214,11 +225,8 @@ is a modifier rather than a family.
 |---|---|---|
 | `roots` | `root` | integers `0`–`11`, pitch classes with `0` = C |
 | `scale_types` | `scale_type` | see [scale types](#scale-types) |
-| `traversals` | `traversal` | `positional`, `three_note_per_string`, `octave_per_string`, `single_string`, `across_strings` |
-| `string_sets` | `string_set` | lists of string indices, low to high; see [string sets](#string-sets) |
+| `traversals` | `traversal` | the two fingering styles `scales` realizes: `positional`, `three_note_per_string` |
 | `patterns` | `pattern` | see [patterns](#patterns) |
-| `octaves` | `range_octaves` | integers `1`–`3` |
-| `directions` | `direction` | `up`, `down`, `up_down` |
 
 ### `[pool.arpeggios]`
 
@@ -227,11 +235,7 @@ is a modifier rather than a family.
 | `roots` | `root` | integers `0`–`11` |
 | `qualities` | `quality` | see [chord qualities](#chord-qualities) |
 | `inversions` | `inversion` | `root`, `first`, `second`, `third` |
-| `traversals` | `traversal` | as for `scales` |
-| `string_sets` | `string_set` | see [string sets](#string-sets) |
 | `patterns` | `pattern` | see [patterns](#patterns) |
-| `octaves` | `range_octaves` | integers `1`–`3` |
-| `directions` | `direction` | `up`, `down`, `up_down` |
 
 ### `[pool.intervals]`
 
@@ -242,8 +246,6 @@ is a modifier rather than a family.
 | `roots` | `root` | integers `0`–`11` |
 | `scale_types` | `scale_type` | see [scale types](#scale-types) |
 | `string_skips` | `string_skip` | `0`, `1`, `2` — adjacent, skipping one, skipping two |
-| `string_sets` | `string_set` | see [string sets](#string-sets) |
-| `directions` | `direction` | `up`, `down`, `up_down` |
 | `patterns` | `pattern` | see [patterns](#patterns) |
 
 `scale_type` is the one **conditional** axis: it is drawn only when the drawn
@@ -274,12 +276,10 @@ Every axis key takes a **list** of candidate values, in the order written, or
 the string `"all"`.
 
 - `"all"` expands the axis to every value it accepts. It is honest on
-  `roots`, `permutations`, `directions` and `contexts`; on axes a family
-  realizes only part of — `traversals` and `patterns` are shared across
-  families — it fills the pool with combinations that family rejects, which
-  costs retries and buys nothing.
-- `"all"` on an axis with no enumerable universe is an error telling you to list
-  the values explicitly. `string_sets` is that axis.
+  `roots`, `permutations` and `contexts`; on axes a family realizes only part
+  of — `traversals` and `patterns` are shared across families — it fills the
+  pool with combinations that family rejects, which costs retries and buys
+  nothing.
 - An **empty list** is an error: an axis with no candidate values cannot be
   sampled.
 - A value outside the axis's universe is an error naming the index in the list
@@ -287,23 +287,6 @@ the string `"all"`.
 
 Duplicates are kept as written; a value listed twice is simply a value with two
 entries in the candidate list.
-
-### String sets
-
-`string_sets` is a list of lists of string indices, low string to high:
-
-```toml
-string_sets = [[0, 1, 2, 3, 4, 5], [0, 1, 2], [1, 2, 3], [2, 3, 4], [3, 4, 5]]
-```
-
-Each set must be non-empty, each index must exist on the active profile, and
-the indices must be **strictly ascending** — the order of the indices is the
-instrument, exactly as it is in a tuning.
-
-There is no `"all"` shorthand and there never will be: the accepted values are a
-structural rule, not an enumeration. Every non-empty subset of six strings is
-sixty-three values, and an error message listing them is not one anybody could
-read.
 
 ### Scale types
 
@@ -350,14 +333,13 @@ did not write produces a sheet the author did not ask for and cannot account
 for.
 
 The alternative looks attractive because most axes seem to have an obvious
-fallback. `string_sets` is the axis that shows they do not. All 63 non-empty
-subsets of six strings is nonsense as a practice pool. Restricting a default to
-contiguous subsets invents a musical judgment — that string skipping is
-exceptional — that the tool has no business making on the author's behalf.
-Defaulting to the full string set silently converts every positional exercise
-into a different exercise. **There is no defensible default for `string_sets`**,
-so melete declines to choose one, and it declines uniformly rather than
-defaulting the easy axes and erroring on the hard one.
+fallback. `roots` is the axis that shows they do not. Defaulting to all twelve
+pitch classes is a drill in random keys nobody asked for; defaulting to C alone
+invents the musical judgment that C is the key to practise; and any middle
+ground picks a set of keys the author never wrote. **There is no defensible
+default for which keys to drill**, so melete declines to choose one, and it
+declines uniformly rather than defaulting the easy axes and erroring on the hard
+one.
 
 The error arrives at the first draw from that pool — that is, from
 `melete generate` — rather than at load, because a pool is only incomplete
@@ -380,11 +362,13 @@ there is nothing to draw from, and that is an error too.
 ### An over-constrained pool fails loudly
 
 Axes are sampled independently, so a draw routinely combines values that
-contradict each other — `three_note_per_string` needs a degree count that is
-exactly three times the string count, and `traversal` and `string_set` are drawn
-without consulting one another. Invalid specifications are discarded and
-redrawn, up to 500 attempts per exercise. A high rejection rate is expected and
-is not a symptom of anything.
+contradict each other — chromatic's `single_string` string traversal covers
+exactly one string and so requires `span == 1`, yet `string_traversal` and
+`span` are drawn without consulting one another, so a `single_string` value
+routinely arrives alongside a `span` of 3. A journey that runs off the neck
+under the drawn root and fingering style is rejected the same way. Invalid
+specifications are discarded and redrawn, up to 500 attempts per exercise. A
+high rejection rate is expected and is not a symptom of anything.
 
 Exhausting the retries is a loud error naming the over-constrained axis. It is
 never a silent fallback to something that does draw.

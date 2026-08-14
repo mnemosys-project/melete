@@ -300,7 +300,7 @@ recorded one. A profile edited since the session was generated would otherwise
 make this command misreport every day before the edit, and a configuration that
 no longer loads would stop it reporting anything.
 
-Roots, fret numbers and octave counts print as numbers. Spelling a root as a
+Roots and fret numbers print as numbers. Spelling a root as a
 letter depends on the exercise's key, which is decided when the exercise is
 realized, which needs the configuration this command deliberately does not
 read — printing `F#` where the sheet engraved `Gb` would be exactly the
@@ -337,10 +337,9 @@ quotes when it refuses a misspelled value, and the same one the cover page
 reads for display names.
 
 The output ends by naming the axes that are deliberately **not** enumerated:
-roots, fret numbers, octave counts, spans, intervals, string sets and
-permutations are ranges bounded by the instrument profile rather than
-vocabularies, so they are validated against the profile rather than against a
-list.
+roots, fret and string numbers, spans, intervals and permutations are ranges
+bounded by the instrument profile rather than vocabularies, so they are
+validated against the profile rather than against a list.
 
 Takes no arguments and writes nothing.
 
