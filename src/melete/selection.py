@@ -70,8 +70,9 @@ distances rather than recomputing against a log that has moved on.
 pitch: `scales.generate` with `root = 9` would ask for A0, three semitones below
 the lowest string of a six-string bass, and every draw would be unrealizable.
 The pitch class is therefore *realized* at the lowest octave at or above the open
-pitch of the string set's lowest string — deterministic, and inside the sampled
-string set rather than beside it. Coverage accounting stays on the pitch class,
+pitch of the lowest instrument string (`tuning[0]`) — deterministic, and the
+anchor the computed outer-to-outer journeys assume (spec §5, §8). Coverage
+accounting stays on the pitch class,
 because that is the axis §7 names: `_coverage_value` reduces a recorded root
 modulo an octave before it counts as a use.
 
@@ -421,16 +422,17 @@ def _sample(family: str, config: Config, slot: _Slot) -> dict[str, AxisValue]:
 def _realized(params: dict[str, AxisValue], profile: InstrumentProfile) -> dict[str, AxisValue]:
     """`root` as an absolute pitch: §7's pitch class, placed on the instrument.
 
-    The lowest octave at or above the open pitch of the string set's lowest
-    string. Deterministic, and inside the strings the exercise is played on
-    rather than beside them — a pitch class handed to a family unchanged would
-    ask for A0 on an instrument whose lowest string is B0, and every draw would
-    be unrealizable.
+    The lowest octave at or above the open pitch of the **lowest instrument
+    string** (`tuning[0]`), which is the anchor the computed outer-to-outer
+    journeys assume (spec §5, §8). Deterministic and independent of any string
+    set: the whole instrument is the string set now, so the root pins to the
+    lowest string in the lower neck rather than beside a sampled subset — a
+    pitch class handed to a family unchanged would ask for A0 on an instrument
+    whose lowest string is B0, and every draw would be unrealizable.
     """
     if ROOT not in params:
         return params
-    strings = cast("tuple[int, ...]", params[STRING_SET])
-    open_pitch = profile.tuning[strings[0]]
+    open_pitch = profile.tuning[0]
     pitch_class = cast("int", params[ROOT])
     return {**params, ROOT: open_pitch + (pitch_class - open_pitch) % _SEMITONES_PER_OCTAVE}
 
