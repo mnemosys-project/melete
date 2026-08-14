@@ -480,24 +480,65 @@ def _n_bar_score(n_bars: int, title: str = "journey") -> Score:
     )
 
 
-def test_a_long_exercise_wraps_into_four_bar_systems() -> None:
-    # A journey longer than one system is split into systems of BARS_PER_SYSTEM
-    # bars with the remainder last (melete#175): 6 bars -> `4 2`, so alphaTab wraps
-    # the exercise across systems instead of cramming every bar onto one line.
+def test_a_long_exercise_wraps_into_evenly_split_systems() -> None:
+    # A journey longer than one system is split into k = ceil(bars/BARS_PER_SYSTEM)
+    # systems, each as even as possible (melete#181): 6 bars -> `3 3`, not `4 2`, so
+    # alphaTab spaces the exercise evenly instead of cramming a full system then a
+    # short one — and never leaves a lonely 1-bar line.
     text = emit_book([_n_bar_score(6)], Cover(date="2026-08-12", instrument="bass6"))
-    assert f'\\track "" {{ systemslayout {emit.BARS_PER_SYSTEM} 2 }}' in text
+    assert '\\track "" { systemslayout 3 3 }' in text
 
 
 def test_each_exercise_wraps_but_still_starts_a_fresh_system() -> None:
     # Each exercise's own bars are wrapped, and every exercise still begins a new
     # system at its boundary so `\section` titles never overprint (the melete#138
-    # goal, preserved): a 6-bar then a 2-bar exercise emit `4 2 2`, the per-exercise
-    # chunk lists concatenated in order — never `4 4` fusing across the boundary.
+    # goal, preserved): a 6-bar then a 2-bar exercise emit `3 3 2` under the even
+    # split (melete#181), the per-exercise chunk lists concatenated in order — never
+    # fusing across the boundary.
     text = emit_book(
         [_n_bar_score(6, "a"), _n_bar_score(2, "b")],
         Cover(date="2026-08-12", instrument="bass6"),
     )
-    assert '\\track "" { systemslayout 4 2 2 }' in text
+    assert '\\track "" { systemslayout 3 3 2 }' in text
+
+
+@pytest.mark.parametrize(
+    ("bar_count", "expected"),
+    [
+        (1, [1]),
+        (2, [2]),
+        (4, [4]),
+        (5, [3, 2]),
+        (6, [3, 3]),
+        (8, [4, 4]),
+        (9, [3, 3, 3]),
+        (10, [4, 3, 3]),
+        (13, [4, 3, 3, 3]),
+        (14, [4, 4, 3, 3]),
+    ],
+)
+def test_wrap_into_systems_distributes_evenly(bar_count: int, expected: list[int]) -> None:
+    # melete#181: k = ceil(bars/BARS_PER_SYSTEM) systems, `bars` spread as evenly as
+    # possible with the ceil-sized (larger) systems first. 9 -> [3, 3, 3], not the
+    # old [4, 4, 1]; 10 -> [4, 3, 3]; 14 -> [4, 4, 3, 3].
+    assert emit._wrap_into_systems(bar_count) == expected
+
+
+@pytest.mark.parametrize("bar_count", range(2, 41))
+def test_wrap_into_systems_never_leaves_a_lonely_one_bar_line(bar_count: int) -> None:
+    # The whole point of melete#181: a 1-bar system reads as orphaned, so for any
+    # exercise of two or more bars no system is ever a single bar. (A genuine 1-bar
+    # exercise, bar_count == 1, is the only unavoidable [1] and is excluded here.)
+    chunks = emit._wrap_into_systems(bar_count)
+    assert 1 not in chunks
+    assert sum(chunks) == bar_count
+    assert all(1 <= chunk <= emit.BARS_PER_SYSTEM for chunk in chunks)
+
+
+def test_wrap_into_systems_of_a_single_bar_is_the_only_one_bar_line() -> None:
+    # A genuine 1-bar exercise is the one unavoidable [1]: k >= 1 systems means the
+    # list is never empty.
+    assert emit._wrap_into_systems(1) == [1]
 
 
 def test_the_systems_layout_precedes_the_bar_stream() -> None:

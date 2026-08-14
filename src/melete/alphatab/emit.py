@@ -150,14 +150,16 @@ REPEAT_CLOSE = "\\rc 2"
 #: is one `\section`, so nothing can overprint.
 SYSTEMS_LAYOUT_PROPERTY = "systemslayout"
 
-#: How many bars fill one system when an exercise is wrapped (melete#175). A long
-#: journey emitted as a single systemslayout entry (its whole bar count) makes
-#: alphaTab cram every bar onto one line; splitting the count into chunks of this
-#: size wraps the exercise across several systems instead. The remainder rides the
-#: last chunk (14 -> `4 4 4 2`, 6 -> `4 2`, 2 -> `2`). The chunks of one exercise
-#: never fuse with the next: each exercise's chunk list is emitted whole and in
-#: order, so a fresh system still begins at every exercise boundary and the
-#: melete#138 `\section`-title separation is preserved.
+#: The most bars any one system may hold when an exercise is wrapped (melete#175).
+#: A long journey emitted as a single systemslayout entry (its whole bar count)
+#: makes alphaTab cram every bar onto one line; splitting the count into several
+#: systems wraps the exercise instead. The split is *even*, not remainder-last
+#: (melete#181): the fewest systems that keep each at most this size, sized as
+#: uniformly as possible with the larger ones first (14 -> `4 4 3 3`, 9 ->
+#: `3 3 3`, 6 -> `3 3`, 2 -> `2`), so no lonely trailing 1-bar line ever appears.
+#: The systems of one exercise never fuse with the next: each exercise's list is
+#: emitted whole and in order, so a fresh system still begins at every exercise
+#: boundary and the melete#138 `\section`-title separation is preserved.
 BARS_PER_SYSTEM = 4
 
 #: The seven letters in ascending order, and the pitch class each names
@@ -551,30 +553,35 @@ def _exercise_bars(score: Score, section: str | None) -> list[str]:
 
 
 def _wrap_into_systems(bar_count: int) -> list[int]:
-    """One exercise's bar count split into systems of `BARS_PER_SYSTEM` (melete#175).
+    """One exercise's bar count split into evenly-sized systems (melete#175, #181).
 
-    Full systems first, the remainder last: 14 -> `[4, 4, 4, 2]`, 6 -> `[4, 2]`,
-    2 -> `[2]`, 8 -> `[4, 4]` (no trailing zero when the count divides evenly). An
-    exercise always has at least one bar, so the list is never empty.
+    Use the fewest systems that keep each at most `BARS_PER_SYSTEM` bars —
+    `k = ceil(bar_count / BARS_PER_SYSTEM)` — then spread `bar_count` across those
+    `k` systems as evenly as possible: each is `floor` or `ceil` of `bar_count / k`,
+    with the ceil-sized (larger) systems first. So 9 -> `[3, 3, 3]`, 10 ->
+    `[4, 3, 3]`, 14 -> `[4, 4, 3, 3]`, 6 -> `[3, 3]`, 8 -> `[4, 4]`.
+
+    Even distribution spaces a long journey uniformly and, crucially, never leaves
+    a lonely trailing 1-bar system (the melete#181 refinement of the earlier
+    remainder-last chunking): the only `[1]` is a genuine 1-bar exercise. An
+    exercise always has at least one bar, so `k >= 1` and the list is never empty.
     """
-    full, remainder = divmod(bar_count, BARS_PER_SYSTEM)
-    chunks = [BARS_PER_SYSTEM] * full
-    if remainder:
-        chunks.append(remainder)
-    return chunks
+    systems = -(-bar_count // BARS_PER_SYSTEM)  # ceil(bar_count / BARS_PER_SYSTEM)
+    base, larger = divmod(bar_count, systems)
+    return [base + 1] * larger + [base] * (systems - larger)
 
 
 def _systems_layout_line(bar_counts: Sequence[int]) -> str:
     r"""The `\track` directive wrapping each exercise into ~4-bar systems (melete#175).
 
-    Each exercise's bar count is split into chunks of `BARS_PER_SYSTEM`
-    (`_wrap_into_systems`) and the per-exercise chunk lists are concatenated in
-    order, so alphaTab wraps a long journey across several systems while still
-    breaking a fresh system at every exercise boundary — short exercises never run
-    together and their `\section` titles never overprint (melete#138). Emitted on a
-    single, unnamed track so it configures the book's one track rather than adding a
-    second. See `SYSTEMS_LAYOUT_PROPERTY` for why this must be track-level, not
-    score-level, and `BARS_PER_SYSTEM` for the chunking rule.
+    Each exercise's bar count is split into evenly-sized systems of at most
+    `BARS_PER_SYSTEM` bars (`_wrap_into_systems`) and the per-exercise system lists
+    are concatenated in order, so alphaTab wraps a long journey across several
+    systems while still breaking a fresh system at every exercise boundary — short
+    exercises never run together and their `\section` titles never overprint
+    (melete#138). Emitted on a single, unnamed track so it configures the book's one
+    track rather than adding a second. See `SYSTEMS_LAYOUT_PROPERTY` for why this
+    must be track-level, not score-level, and `BARS_PER_SYSTEM` for the split rule.
     """
     chunks = [chunk for count in bar_counts for chunk in _wrap_into_systems(count)]
     counts = " ".join(str(chunk) for chunk in chunks)
@@ -623,11 +630,12 @@ def emit_book(scores: Sequence[Score], cover: Cover) -> str:
     across exercise boundaries as well — alphaTab starts a new bar only at a `|`.
 
     A `\\track` systems-layout directive precedes the bars. Each exercise's bar
-    count is wrapped into chunks of `BARS_PER_SYSTEM` (melete#175) and the chunk
-    lists are concatenated in order, so alphaTab wraps a long journey across
-    several systems while still starting a fresh system at every exercise boundary
-    — short exercises never run together and overprint their `\\section` titles
-    (melete#138; see `SYSTEMS_LAYOUT_PROPERTY` and `BARS_PER_SYSTEM`).
+    count is split into evenly-sized systems of at most `BARS_PER_SYSTEM` bars
+    (melete#175, #181) and the per-exercise system lists are concatenated in order,
+    so alphaTab wraps a long journey across several systems while still starting a
+    fresh system at every exercise boundary — short exercises never run together and
+    overprint their `\\section` titles (melete#138; see `SYSTEMS_LAYOUT_PROPERTY`
+    and `BARS_PER_SYSTEM`).
     """
     if not scores:
         msg = "a book needs at least one exercise; a cover with no exercises is not a session"

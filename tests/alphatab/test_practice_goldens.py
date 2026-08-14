@@ -224,10 +224,12 @@ def test_the_rendered_book_wraps_each_exercise_into_systems(
     This is the melete#175 wrapping proven end to end: `emit_book`'s `\track`
     systemslayout directive must survive the real alphaTab toolchain and land as
     the master track's `<SystemsLayout>` in the exported `Content/score.gpif`. Each
-    exercise's bar count is split into systems of `emit.BARS_PER_SYSTEM` bars
-    (remainder last) and the per-exercise chunk lists are concatenated in order, so
-    a long journey wraps across systems while a fresh system still begins at every
-    exercise boundary — the melete#138 `\section`-title separation is preserved.
+    exercise's bar count is split into evenly-sized systems of at most
+    `emit.BARS_PER_SYSTEM` bars (melete#181) and the per-exercise system lists are
+    concatenated in order, so a long journey wraps across systems while a fresh
+    system still begins at every exercise boundary — the melete#138 `\section`-title
+    separation is preserved. `expected` is derived from the live `_wrap_into_systems`
+    so it tracks the even split rather than a hardcoded layout.
 
     The book is emitted fresh from the redrawn day rather than read from the frozen
     `book.atex` golden: that golden is quarantined and drifted under epic #72
