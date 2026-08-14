@@ -61,7 +61,15 @@ def boxed_span(
     the highest string the box reaches.
     """
     strings = tuple(range(len(profile.tuning)))
-    base = min(f for s, f in positions(profile, pitches[0]) if s == 0)
+    anchors = [f for s, f in positions(profile, pitches[0]) if s == 0]
+    if not anchors:
+        msg = (
+            f"{family}: pitch {pitches[0]} is unreachable on string 0 of profile "
+            f"{profile.name!r}, which has frets 0 to {profile.fret_count}: {axes} cannot "
+            f"all be satisfied because the box has no anchor on the lowest string"
+        )
+        raise ValueError(msg)
+    base = min(anchors)
     used: list[int] = []
     places: list[tuple[int, int]] = []
     for pitch in pitches:
