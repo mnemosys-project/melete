@@ -75,7 +75,7 @@ from dataclasses import replace
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from melete.score import Tuplet
+from melete.score import Attack, Tuplet
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -172,7 +172,13 @@ def restamp(
     durations = _durations(len(notes), written, pattern, group)
     accents = _accents(len(notes), ACCENTS[accent_pattern])
     restamped = [
-        replace(note, duration=duration, accent=accent)
+        # An accent marks an attack; a slur (hammer-on/pull-off) has none, so the
+        # accent pass never lands on a `SLURRED` note (spec §9, epic #67).
+        replace(
+            note,
+            duration=duration,
+            accent=accent and note.attack is not Attack.SLURRED,
+        )
         for note, duration, accent in zip(notes, durations, accents, strict=True)
     ]
     return _grouped(restamped, ratio)

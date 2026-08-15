@@ -22,7 +22,7 @@ from fractions import Fraction
 import pytest
 
 from melete import rhythm, vocabulary
-from melete.score import Note, Tuplet, Voice, sounding_duration
+from melete.score import Attack, Note, Tuplet, Voice, sounding_duration
 
 #: Real elapsed time of one note at each subdivision (decision #16). Stated
 #: independently of `rhythm.SUBDIVISIONS` so the cycle-length test compares
@@ -242,6 +242,33 @@ def test_an_incoming_accent_is_replaced_not_merged() -> None:
     out = rhythm.restamp(accented, "eighth", accent_pattern="none")
 
     assert [note.accent for note in _notes(out)] == [False] * 4
+
+
+def test_a_slurred_note_is_never_accented(subdivision: str = "eighth") -> None:
+    """An accent marks an attack; a hammer-on/pull-off has none (spec §9, #67).
+
+    `every_3` would otherwise land an accent on notes 0, 3 and 6. Note 3 is
+    slurred, so the accent pass must clear it there while still accenting the
+    plucked notes the pattern selects.
+    """
+    voice: Voice = [
+        replace(_note(index), attack=Attack.SLURRED) if index == 3 else _note(index)
+        for index in range(9)
+    ]
+    out = rhythm.restamp(voice, subdivision, accent_pattern="every_3")
+
+    accents = [note.accent for note in _notes(out)]
+    assert accents[3] is False  # the slur the pattern would have accented
+    assert [index for index, accent in enumerate(accents) if accent] == [0, 6]
+
+
+@pytest.mark.parametrize("accent_pattern", ["none", "every_3", "every_5", "displaced"])
+def test_a_slur_is_unaccented_for_every_accent_pattern(accent_pattern: str) -> None:
+    """No accent pattern ever accents a slurred note, whatever period it uses."""
+    voice: Voice = [replace(_note(index), attack=Attack.SLURRED) for index in range(11)]
+    out = rhythm.restamp(voice, "eighth", accent_pattern=accent_pattern)
+
+    assert [note.accent for note in _notes(out)] == [False] * 11
 
 
 # --------------------------------------------------------------------------
