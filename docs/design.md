@@ -65,8 +65,14 @@ src/melete/
   vocabulary.py         Canonical parameter identifiers and display names
   families/
     __init__.py         REGISTRY: family name -> generator function
-    _shared.py          Parameter reading and direction ordering. Not
-                        a family; decides nothing about exercises.
+    _shared.py          Parameter reading, direction ordering, and the
+                        one-hand `box` placement primitive. Not a family;
+                        decides nothing about exercises.
+    journey.py          The coherent up-and-down journey: places a pitch run
+                        outer string to opposite outer string (boxed_span,
+                        per_string) and plays it up and back (updown).
+    arpeggio_shapes.py  Canonical per-quality seed shapes and their
+                        derivation (provisional, instructor-validated).
     scales.py           }
     arpeggios.py        }  One pure function per family:
     intervals.py        }  parameters -> (Score, LayoutHints)
@@ -92,8 +98,9 @@ which the notes tile into whole, complete measures, wrapped in repeat barlines;
 the rhythm modifier restamps the voice's durations, tuplets and accents at that
 subdivision; `pipeline.realize` is the one place those three renderer-agnostic
 stages are wired together into a single laid-out `Score`; the emitter turns it
-into alphaTex source text; and the renderer produces the Guitar Pro `.gp`. Only
-the last two stages name a renderer.
+into alphaTex source text — wrapping each exercise into even, roughly four-bar
+systems so no exercise is engraved as a lonely one-bar line; and the renderer
+produces the Guitar Pro `.gp`. Only the last two stages name a renderer.
 
 ## What the design is made of
 
@@ -115,7 +122,17 @@ the exercise plays twice, which the emitter draws as repeat barlines.
 
 **The four families (§7).** Scales, arpeggios, intervals and chromatic
 permutations, each a pure function from parameters to a `Score` and the
-`LayoutHints` the fitter needs, registered in `families.REGISTRY`.
+`LayoutHints` the fitter needs, registered in `families.REGISTRY`. Every family
+now realizes **one coherent up-and-down journey** (§5): anchored at the root on
+the lowest string, it traverses outer string to opposite outer string under the
+chosen fingering style and returns as the exact retrograde. The geometry is
+**computed, not sampled** — direction is always up-and-down, string coverage is
+the whole instrument, and the octave count is *emergent* rather than a target.
+The old sampled `direction`, `string_set` and `range_octaves` axes were retired
+with that model (epic #72); `families/journey.py` and the `box` primitive
+compute the placement those axes used to name. `scales` keeps the `traversal`
+axis as a fingering style (positional or three-note-per-string); `arpeggios`
+drop it, laying every quality out from a canonical seed shape.
 
 **The layout fitter (§4, §5).** A family emits a `Score` plus `LayoutHints` —
 a cell size, a seam, and the note-count levers that are musically legal here —
@@ -125,7 +142,9 @@ partial bar, wrapped in repeat barlines. It ranks meters by a priority ladder �
 a whitelisted beats-per-bar, an even bar count, then seam alignment — and
 engages a single cell-granular lever (repeat or omit the apex, add or drop a
 whole cell) only when a clean fit needs one, recording a legibility trace for
-why the chosen meter won. `pipeline.realize` wires it between the family and the
+why the chosen meter won. `2/4` is demoted to a strict last resort: any non-2
+fit — even one that burns a lever — outranks it, so `2/4` wins only when every
+reachable fit is `2/4` (the genuinely one-beat drill). `pipeline.realize` wires it between the family and the
 rhythm modifier.
 
 **Coverage-aware selection (§9).** The selector weights candidate exercises by
