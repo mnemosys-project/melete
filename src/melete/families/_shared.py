@@ -56,19 +56,20 @@ did move, takes the axis list it should name rather than inventing one.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, overload
 
 from melete import vocabulary
 from melete.instrument import hand_span, positions
 from melete.layout import LayoutHints
-from melete.score import Hand
+from melete.score import Attack, Hand, Note
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from melete.instrument import InstrumentProfile
     from melete.layout import Lever
+    from melete.score import Tuplet, Voice
 
 
 @dataclass(frozen=True)
@@ -382,6 +383,43 @@ def directed_by_cell[T](order: Sequence[T], direction: str, cell: int) -> list[T
     # `up_down`: ascend, then retrograde the ascent without its trailing apex
     # cell, so the apex plays once and the note count stays a whole cell count.
     return [*order, *reversed(order[: len(order) - cell])]
+
+
+def derive_legato(voice: Sequence[Note | Tuplet]) -> Voice:
+    """Re-derive articulation across each hand's same-string run (spec §3, §6).
+
+    Within a run of consecutive notes on the *same string and same hand* the
+    first note is `TAPPED` and every follower is `SLURRED` — a hammer-on or
+    pull-off, sounded without a fresh attack. A string change or a hand change
+    ends the run and forces a fresh `TAPPED`. The articulation is **derived
+    from scratch** on the note positions, so a note's incoming `attack` does not
+    matter: a run that arrives `SLURRED`-first (because a fitter lever dropped
+    its leading tap) still comes out `TAPPED`-first, and no slur is ever
+    stranded without a tapped attack ahead of it on the same string and hand.
+
+    Only tapped notes are touched. A `PLUCKED` note — every one-hand family
+    emits these — is left exactly as it is and breaks any run, so this pass is a
+    no-op for the untapped pipeline and, because the all-tapped triad boxes put
+    nothing on the same string and hand consecutively, a no-op for the triad
+    default too (spec §6). It runs **after** the fitter, on the final tiled
+    voice, which is the one place the tapped journey and the fitter interact.
+
+    The voice at this stage is a flat run of `Note`s (the barring pass has not
+    grouped tuplets yet); a `Tuplet`, were one present, passes through untouched
+    and ends the current run, since a run does not reach across it.
+    """
+    result: Voice = []
+    run: tuple[int, Hand] | None = None  # the (string, hand) of the open run
+    for item in voice:
+        if isinstance(item, Note) and item.attack in (Attack.TAPPED, Attack.SLURRED):
+            here = (item.string, item.hand)
+            attack = Attack.SLURRED if run == here else Attack.TAPPED
+            result.append(replace(item, attack=attack))
+            run = here
+        else:
+            result.append(item)
+            run = None  # a plucked note or a tuplet ends the run
+    return result
 
 
 def layout_hints(cell: int, seam: int | None, levers: tuple[Lever, ...]) -> LayoutHints:

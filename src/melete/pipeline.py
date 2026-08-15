@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, cast
 
 from melete import layout, rhythm
 from melete.families import REGISTRY
+from melete.families._shared import derive_legato
 
 if TYPE_CHECKING:
     from melete.families import Params
@@ -46,7 +47,15 @@ if TYPE_CHECKING:
 
 
 def realize(profile: InstrumentProfile, family: str, params: Params) -> tuple[Score, LayoutPlan]:
-    """Family -> fitter -> restamp: one fully-laid-out Score, plus its LayoutPlan.
+    """Family -> fitter -> legato -> restamp: one laid-out Score, plus its LayoutPlan.
+
+    A small shared **legato** pass runs between the fitter and the rhythm
+    modifier (spec §3, §6, epic #67): on the final tiled voice it re-derives
+    two-hand articulation, turning each hand's same-string-run followers into
+    slurs while the first note of every run stays a fresh tap. Running it after
+    the fitter is what keeps a note the fitter repeated or dropped correctly
+    attacked; it is a no-op for the untapped pipeline and for the all-tapped
+    triad default.
 
     Sets the fitter's meter, wraps the exercise in a repeat, and records the
     legibility trace in `params["layout_trace"]`. The subdivision and meter are
@@ -60,8 +69,9 @@ def realize(profile: InstrumentProfile, family: str, params: Params) -> tuple[Sc
     """
     score, hints = REGISTRY[family].generate(profile, params)
     adjusted, plan = layout.plan_voice(score.voice, hints)
+    legato = derive_legato(adjusted)
     voice = rhythm.restamp(
-        adjusted,
+        legato,
         plan.subdivision,
         note_value_pattern=cast("str", params.get("note_value_pattern", "straight")),
         accent_pattern=cast("str", params.get("accent_pattern", "none")),

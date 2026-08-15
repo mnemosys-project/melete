@@ -19,7 +19,7 @@ from melete import pipeline
 from melete.config import load_string
 from melete.families import REGISTRY
 from melete.instrument import PROFILES
-from melete.score import bar, sounding_duration
+from melete.score import Attack, Hand, bar, notes, sounding_duration
 from melete.selection import select
 
 BASS6 = PROFILES["bass6"]
@@ -113,6 +113,74 @@ def test_the_fitter_derives_a_quarter_denominated_meter() -> None:
     for spec, _inputs in select(config, [], Random(1)):  # noqa: S311 - §9
         score, _plan = pipeline.realize(config.instrument, spec.family, spec.params)
         assert score.time_signature[1] == 4
+
+
+#: A two-hand tapped triad (spec §6, epic #67): E minor rooted low on the bass,
+#: with room for the box. The retired rhythm keys are supplied so the pipeline
+#: exercises the same shape a real draw would.
+TAPPED_TRIAD: dict[str, object] = {
+    "root": 28,
+    "quality": "min",
+    "inversion": "root",
+    "pattern": "straight",
+    "accent_pattern": "none",
+    "note_value_pattern": "straight",
+}
+
+
+def _no_slur_is_stranded(voice) -> bool:  # noqa: ANN001 - a Voice
+    """Every SLURRED note has an open same-string+same-hand TAPPED run ahead of it.
+
+    The post-fitter guarantee (spec §3): legato runs last, so a slur is never
+    left without the tapped attack that begins its run — even after a lever
+    repeated or dropped notes.
+    """
+    open_run: tuple[int, Hand] | None = None
+    for note in notes(voice):
+        key = (note.string, note.hand)
+        if note.attack is Attack.SLURRED:
+            if open_run != key:
+                return False
+        elif note.attack is Attack.TAPPED:
+            open_run = key
+        else:
+            open_run = None
+    return True
+
+
+def test_a_tapped_triad_realizes_two_handed_and_the_legato_is_a_noop() -> None:
+    """Spec §6: the triad default taps every note, so the wired legato pass is a no-op."""
+    score, _plan = pipeline.realize(BASS6, "arpeggios", TAPPED_TRIAD)
+    played = list(notes(score.voice))
+
+    assert {note.hand for note in played} == {Hand.LEFT, Hand.RIGHT}
+    assert all(note.attack is Attack.TAPPED for note in played)
+    assert _no_slur_is_stranded(score.voice)
+
+
+def test_the_post_fitter_legato_strands_no_slur_when_it_fires() -> None:
+    """Spec §3: run after the fitter, legato leaves a correct first-TAPPED-per-run.
+
+    `numeric_1353` repeats a chord tone on the same string and hand, so the
+    legato pass does fire here (unlike the straight default). It runs on the
+    already-tiled voice, so every slur it derives still has its tapped attack
+    ahead of it — no slur is stranded by a note the fitter repeated or dropped.
+    """
+    score, _plan = pipeline.realize(BASS6, "arpeggios", {**TAPPED_TRIAD, "pattern": "numeric_1353"})
+    played = list(notes(score.voice))
+
+    assert any(note.attack is Attack.SLURRED for note in played)  # the pass fired
+    assert _no_slur_is_stranded(score.voice)
+
+
+def test_a_seventh_stays_one_handed_and_plucked_through_the_pipeline() -> None:
+    """The untapped path is unchanged: a seventh realizes all-plucked, one hand."""
+    spec = {**TAPPED_TRIAD, "root": 33, "quality": "min7"}
+    score, _plan = pipeline.realize(BASS6, "arpeggios", spec)
+    played = list(notes(score.voice))
+
+    assert all(note.attack is Attack.PLUCKED for note in played)
+    assert all(note.hand is Hand.LEFT for note in played)
 
 
 def test_a_stray_subdivision_or_meter_key_does_not_reach_the_page() -> None:

@@ -286,13 +286,17 @@ def test_an_inversion_keeps_the_pitch_classes() -> None:
         assert played == {pitch % 12 for pitch in theory.chord_pitches(ROOT, "maj7")}
 
 
-def test_an_inversion_a_triad_cannot_support_raises() -> None:
-    # A triad has no third inversion. `theory.chord_pitches` refuses the rotation
-    # before any placement, and the family lets the refusal through with the
-    # quality named — wrapping round to root position would engrave the wrong
-    # chord convincingly (§13).
-    with pytest.raises(ValueError, match=r"inversion 3 is out of range for 'maj'"):
-        generate(BASS6, params(quality="maj", inversion="third"))
+def test_a_triad_defers_every_non_root_inversion() -> None:
+    # A triad now routes to the two-hand tapped journey (epic #67), and the
+    # captured tap box is a root-position shape (spec §2). So a triad supports
+    # only root position; every other inversion — including the third a triad
+    # has no chord tone for — is deferred and raises rather than silently
+    # tapping the root-position shape (§13). The one-hand journey (a seventh)
+    # keeps supporting all four inversions, so the theory-level rejection of an
+    # unsupported inversion is covered where it now lives, in `test_theory`.
+    for inversion in ("first", "second", "third"):
+        with pytest.raises(ValueError, match="root-position"):
+            generate(BASS6, params(quality="maj", inversion=inversion))
 
 
 # --------------------------------------------------------------------------

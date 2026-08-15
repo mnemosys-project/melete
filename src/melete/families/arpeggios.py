@@ -85,11 +85,12 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory, vocabulary
-from melete.families._shared import Parameters, layout_hints, realizable, windowed
+from melete.families._shared import Parameters, box, layout_hints, realizable, windowed
 from melete.families.arpeggio_shapes import shape_places
+from melete.families.arpeggio_tap_shapes import box_places
 from melete.families.journey import updown
 from melete.layout import Lever
-from melete.score import Note, Score
+from melete.score import Attack, Hand, Note, Score
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -158,6 +159,19 @@ _SEMITONES_PER_OCTAVE = len(theory.PITCH_CLASSES)
 #: up the neck a higher octave sits.
 _OCTAVE_STRING_STEP = 2
 
+#: Frets an octave adds when the two-hand box climbs one octave: ten of a
+#: fourth-tuned octave's twelve semitones are the `+2` strings, the other two are
+#: frets. The box's octave-root sits `+2` frets above its root two strings up,
+#: and the next box re-roots there — so a box climbs `+2` strings / `+2` frets.
+_OCTAVE_FRET_STEP = 2
+
+#: A triad has three chord tones. A quality with this many is walked as a
+#: two-hand tapped journey; a seventh (four tones) keeps the one-hand journey.
+_TRIAD_TONES = 3
+
+#: The axes named in a reach failure the two-hand box raises (spec §13).
+_TAP_AXES = "root, quality, inversion"
+
 
 def _tones_to_the_top(octave_len: int, top: int) -> int:
     """How many ascending tones the seed lays out before one lands on `top`.
@@ -206,6 +220,151 @@ def _journey(
     return tones, places
 
 
+def _is_triad(quality: str) -> bool:
+    """Whether `quality` is a three-tone triad (so it taps) or not (so it plucks).
+
+    The routing between the two placement paths is a data lookup, not a code
+    branch per quality: any three-tone chord in `theory.CHORDS` — `maj`, `min`,
+    `dim`, `aug` — walks the two-hand tapped journey, and every richer chord (a
+    seventh, a sixth) keeps the one-hand `shape_places` journey. `dim`/`aug`
+    are therefore data, exactly as spec §6 requires.
+    """
+    return len(theory.CHORDS[quality]) == _TRIAD_TONES
+
+
+def _tile_boxes(
+    profile: InstrumentProfile,
+    root: int,
+    quality: str,
+) -> list[list[tuple[int, int, Hand, int]]]:
+    """Tile the universal tap box up the neck, low octave first (spec §5, §6).
+
+    Anchors the first box at the triad root on the lowest string that sounds it
+    (string 0), then climbs `+2` strings / `+2` frets per octave — the box's
+    octave-root becomes the next box's root — realizing each box through `box`'s
+    two-anchor path so the placement honours each hand's `position_span`. The
+    climb stops when the next box would leave the neck: either its top string
+    runs past the instrument or a derived fret runs off the fretboard. It is
+    never clamped to fit (spec §9); an empty result — not even the first box
+    fits — is the caller's cue to raise.
+
+    Each box is returned as its four `(string, fret, hand, finger)` placements
+    in role order (root, third, fifth, octave-root).
+    """
+    root_fret = root - profile.tuning[0]
+    num_strings = len(profile.tuning)
+
+    boxes: list[list[tuple[int, int, Hand, int]]] = []
+    string, fret = 0, root_fret
+    while string + _OCTAVE_STRING_STEP < num_strings:  # the box's top string must exist
+        shape = box_places(profile, (string, fret), quality)
+        if not all(0 <= box_fret <= profile.fret_count for _s, box_fret, _h, _f in shape):
+            break  # a derived fret ran off the neck: the journey turns around here
+        pitches = [profile.tuning[s] + f for s, f, _h, _f in shape]
+        strings = tuple(sorted({s for s, _f, _h, _fg in shape}))
+        hands = [hand for _s, _f, hand, _fg in shape]
+        fingers = [finger for _s, _f, _h, finger in shape]
+        # The two-anchor reach gate (spec §6): left anchor at the root fret,
+        # right anchor at the octave-root fret; `box` places each hand near its
+        # own anchor and raises if either hand exceeds one position.
+        anchors = (shape[0][1], shape[-1][1])
+        placed = box(profile, pitches, strings, anchors, _FAMILY, _TAP_AXES, hands)
+        boxes.append([(s, f, h, finger) for (s, f, h), finger in zip(placed, fingers, strict=True)])
+        string += _OCTAVE_STRING_STEP
+        fret += _OCTAVE_FRET_STEP
+    return boxes
+
+
+def _tapped_ascending(
+    profile: InstrumentProfile,
+    root: int,
+    quality: str,
+    inversion: str,
+) -> list[Note]:
+    """The ascending half of the two-hand tapped journey, low root to top (spec §6).
+
+    The tiled boxes overlap by one pitch: box N's octave-root and box N+1's root
+    are the *same* pitch (an octave up, `+2` strings, `+2` frets). That shared
+    pitch is realized **once**, as the upper box's root — left hand, ring finger,
+    faithful to B0's tiling rule ("the octave-root becomes the next box's root,
+    retapped by the left ring finger"). So every box but the last contributes
+    only its root, third and fifth, and the final box adds its octave-root to cap
+    the ascent. The emitted ascending pitch sequence is then exactly the triad's
+    `theory.chord_pitches` tiled across the register — each pitch once (spec §10).
+
+    Every note is `TAPPED`; the legato pass (`_shared.derive_legato`, run after
+    the fitter) is what may later turn same-string-run followers into slurs, and
+    it is a no-op here because the box puts nothing on the same string and hand
+    consecutively.
+
+    The captured box is a root-position shape (spec §2); a non-root inversion is
+    deferred and raises rather than silently tapping the root-position shape.
+    """
+    if inversion != INVERSIONS[0]:
+        msg = (
+            f"{_FAMILY}: the two-hand tap box is a root-position shape; inversion "
+            f"{inversion!r} is deferred (spec §2, §12) — only {INVERSIONS[0]!r} taps in v1"
+        )
+        raise ValueError(msg)
+
+    boxes = _tile_boxes(profile, root, quality)
+    if not boxes:
+        msg = (
+            f"{_FAMILY}: a {quality} rooted at pitch {root} has no on-neck two-hand box on "
+            f"profile {profile.name!r} (frets 0 to {profile.fret_count}); the tapped journey "
+            f"is unrealizable here rather than clamped (spec §9)"
+        )
+        raise ValueError(msg)
+
+    notes: list[Note] = []
+    for index, shape in enumerate(boxes):
+        used = shape if index == len(boxes) - 1 else shape[:_TRIAD_TONES]
+        for string, fret, hand, finger in used:
+            notes.append(
+                Note(
+                    pitch=profile.tuning[string] + fret,
+                    string=string,
+                    fret=fret,
+                    duration=NOTE_DURATION,
+                    finger=finger,
+                    accent=False,
+                    hand=hand,
+                    attack=Attack.TAPPED,
+                )
+            )
+    return notes
+
+
+def _ascending_notes(
+    profile: InstrumentProfile,
+    root: int,
+    quality: str,
+    inversion: str,
+) -> list[Note]:
+    """The journey's ascending pass as notes, routed by quality class (spec §6).
+
+    A triad walks the two-hand tapped journey; a seventh keeps the one-hand
+    `shape_places` journey. Both return the ascending pass as one note per tone,
+    which `generate` then windows by `pattern` and orders up-and-down — the same
+    machinery round for both paths, so `pattern`, the turnaround and the layout
+    hints are computed once.
+    """
+    if _is_triad(quality):
+        return _tapped_ascending(profile, root, quality, inversion)
+    tones, places = _journey(profile, root, quality, inversion)
+    return [
+        Note(
+            pitch=tones[index],
+            string=places[index][0],
+            fret=places[index][1],
+            duration=NOTE_DURATION,
+            finger=None,
+            accent=False,
+        )
+        for index in range(len(tones))
+    ]
+
+
 def _title(root: int, quality: str, inversion: str, pattern: str) -> str:
     """The plain-language name §12's cover page prints, built from the registry.
 
@@ -233,9 +392,11 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     family reads is required, so a misspelled one is a loud failure and never a
     silent default.
 
-    The voice is the up-and-down seed-shape journey (spec §5): the chord tones
-    are placed once by `arpeggio_shapes.shape_places` from the root on the lowest
-    string, `pattern` slides its window along the ascent, and `journey.updown`
+    The voice is the up-and-down journey (spec §5), routed by quality class: a
+    triad is walked as a two-hand *tapped* journey — the universal tap box tiled
+    up the chord tones (`_tapped_ascending`) — and a seventh keeps the one-hand
+    `arpeggio_shapes.shape_places` journey. Either way the ascending pass is
+    placed once, `pattern` slides its window along it, and `journey.updown`
     orders the result up and back without replaying the apex.
 
     The hints are the fitter's window onto what the voice alone does not carry:
@@ -248,22 +409,12 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     inversion = read.identifier("inversion")
     pattern = realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
 
-    tones, places = _journey(profile, root, quality, inversion)
+    ascending_notes = _ascending_notes(profile, root, quality, inversion)
     window = _PATTERN_WINDOWS[pattern]
-    ascending = windowed(window, len(tones))
+    ascending = windowed(window, len(ascending_notes))
     order = updown(ascending, len(window))
 
-    voice: Voice = [
-        Note(
-            pitch=tones[tone],
-            string=places[tone][0],
-            fret=places[tone][1],
-            duration=NOTE_DURATION,
-            finger=None,
-            accent=False,
-        )
-        for tone in order
-    ]
+    voice: Voice = [ascending_notes[index] for index in order]
 
     score = Score(
         title=_title(root, quality, inversion, pattern),
