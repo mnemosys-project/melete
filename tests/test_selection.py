@@ -539,8 +539,12 @@ def test_an_exercise_over_max_notes_is_resampled_and_then_reported() -> None:
     with pytest.raises(SelectionError) as raised:
         select(config, [], seeded(24))
 
-    assert "max_notes" in str(raised.value)
-    assert "range_octaves, pattern and direction" in str(raised.value)
+    message = str(raised.value)
+    assert "max_notes" in message
+    assert "emergent extent and the pattern" in message
+    # The retired axes (epic #72) must not resurface in the prose.
+    assert "range_octaves" not in message
+    assert "direction" not in message
 
 
 def test_an_exercise_over_max_fret_span_is_resampled_and_then_reported() -> None:

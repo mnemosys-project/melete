@@ -18,8 +18,8 @@ configuration writes and what code dispatches on; the *display* half is what
 exists to prevent.
 
 Axes that are ranges rather than vocabularies — `root`, `start_string`,
-`start_fret`, `span`, `string_set`, `range_octaves`, `permutation`,
-`interval` — are absent on purpose. They are validated against the instrument
+`start_fret`, `span`, `permutation`, `interval` — are absent on purpose. They
+are validated against the instrument
 profile (§5), not against an enumerated set, and listing a frozen subset here
 would be a second source of truth for something the profile already decides.
 """
