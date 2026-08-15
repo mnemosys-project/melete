@@ -38,8 +38,3 @@ def test_open_string_is_a_valid_position(spec_decision_5=True):
         BASS6, [23], strings=(0, 1, 2, 3, 4, 5), anchors=(0,), family="scales", axes="root"
     )
     assert places == [(0, 0)]
-
-
-def test_two_anchor_box_is_the_67_seam():
-    with pytest.raises(NotImplementedError, match="#67"):
-        box(BASS6, [23, 35], strings=(0, 1), anchors=(0, 7), family="tapping", axes="hands")
