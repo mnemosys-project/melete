@@ -384,8 +384,8 @@ def _named(axis: str, value: AxisValue) -> str:
     Read out of `vocabulary` rather than printed raw, because §13 makes that
     registry the single source of display names: a preview with a private
     vocabulary is a preview that drifts from the sheet it is previewing. The
-    range axes the registry deliberately does not enumerate — frets, octave
-    counts, string sets — print as themselves.
+    range axes the registry deliberately does not enumerate — frets, string
+    indices, spans — print as themselves.
     """
     if isinstance(value, tuple):
         return "-".join(str(item) for item in value)
@@ -653,8 +653,8 @@ _RHYTHM_NOTE = (
 
 _RANGE_NOTE = (
     "The list above is every axis with an enumerated vocabulary, and it is not every axis. "
-    "These are ranges rather than vocabularies — a root is a pitch class, a fret number and an "
-    "octave count and a string set are bounded by the instrument profile (§5) — so they are "
+    "These are ranges rather than vocabularies — a root is a pitch class, and a start fret and a "
+    "span are fret positions bounded by the instrument profile (§5) — so they are "
     "validated against the profile rather than against a list, and a frozen enumeration here "
     "would be a second source of truth for something the profile already decides:"
 )

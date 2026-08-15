@@ -19,8 +19,8 @@ from melete import theory
 from melete.vocabulary import AXES, _named, accepted, display
 
 # Every axis §7 and §8 enumerate. Numeric and computed axes - `root`,
-# `start_fret`, `span`, `string_set`, `range_octaves`, `permutation`,
-# `interval` - are ranges rather than vocabularies and are deliberately absent.
+# `start_fret`, `span`, `permutation`, `interval` - are ranges rather than
+# vocabularies and are deliberately absent.
 EXPECTED_AXES = {
     "family",
     "scale_type",

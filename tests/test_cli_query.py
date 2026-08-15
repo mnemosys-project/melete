@@ -650,6 +650,11 @@ def test_vocabulary_names_the_range_axes_it_deliberately_omits(
     }
     for axis in omitted:
         assert axis in out
+    # The retired axes (epic #72) must not resurface in the range-note prose.
+    assert "octave count" not in out
+    assert "string set" not in out
+    assert "range_octaves" not in out
+    assert "string_set" not in out
 
 
 # --------------------------------------------------------------------------

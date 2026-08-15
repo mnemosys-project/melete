@@ -468,7 +468,7 @@ def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> s
     if len(printed) > config.session.max_notes:
         return (
             f"{family}: the cycle is {len(printed)} notes, over the max_notes bound of "
-            f"{config.session.max_notes}. range_octaves, pattern and direction multiply, so a "
+            f"{config.session.max_notes}. The emergent extent and the pattern multiply, so a "
             f"cycle is bounded rather than truncated (§7, decision #17)"
         )
 
@@ -476,8 +476,8 @@ def _rejected(family: str, params: Mapping[str, AxisValue], config: Config) -> s
     if span > config.session.max_fret_span:
         return (
             f"{family}: the exercise makes the hand travel {span} frets, over the "
-            f"max_fret_span bound of {config.session.max_fret_span}. A traversal, a string_set "
-            f"and a shift that spread an exercise further than that are a specification "
+            f"max_fret_span bound of {config.session.max_fret_span}. A traversal and a shift "
+            f"that spread an exercise further than that are a specification "
             f"nothing can play in one sitting, so it is resampled rather than engraved "
             f"(§9, issue #57)"
         )
