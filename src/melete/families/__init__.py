@@ -59,6 +59,20 @@ type Params = Mapping[str, object]
 #: are one return because neither is derivable from the other after the fact.
 type Generate = Callable[[InstrumentProfile, Params], tuple[Score, LayoutHints]]
 
+#: A family's derivation hook (§7, decision 8): given the axes the selector has
+#: sampled so far, the axes that follow from them deterministically rather than
+#: being sampled. It is how `arpeggios` couples `hands` (and a triad's fixed
+#: `inversion`) to the drawn `quality` without new selector machinery — the
+#: independent, recency-weighted sampler cannot couple two axes, so a value one
+#: axis fixes is derived, not drawn. Returns an empty mapping when nothing is yet
+#: derivable (the axis it keys on has not been sampled).
+type Derive = Callable[[Params], Params]
+
+
+def _no_derivation(_params: Params) -> Params:
+    """The default hook for a family that derives nothing: every axis is sampled."""
+    return {}
+
 
 @dataclass(frozen=True)
 class Family:
@@ -74,6 +88,10 @@ class Family:
     #: fastest. A default the user overrides in `[pool.<family>] tempo`, never a
     #: sampled axis (decision #20).
     default_tempo_range: tuple[int, int]
+    #: The axes this family *derives* from what the selector has sampled, rather
+    #: than sampling them (decision 8). Most families derive nothing; `arpeggios`
+    #: derives `hands` and a triad's `inversion` from the drawn `quality`.
+    derive: Derive = _no_derivation
 
 
 #: Family identifier -> the record that describes it. All four of §7's families
@@ -81,8 +99,13 @@ class Family:
 REGISTRY: dict[str, Family] = {
     "chromatic": Family(chromatic.generate, chromatic.AXES, chromatic.DEFAULT_TEMPO_RANGE),
     "scales": Family(scales.generate, scales.AXES, scales.DEFAULT_TEMPO_RANGE),
-    "arpeggios": Family(arpeggios.generate, arpeggios.AXES, arpeggios.DEFAULT_TEMPO_RANGE),
+    "arpeggios": Family(
+        arpeggios.generate,
+        arpeggios.AXES,
+        arpeggios.DEFAULT_TEMPO_RANGE,
+        derive=arpeggios.derive,
+    ),
     "intervals": Family(intervals.generate, intervals.AXES, intervals.DEFAULT_TEMPO_RANGE),
 }
 
-__all__ = ["REGISTRY", "Family", "Generate", "Params"]
+__all__ = ["REGISTRY", "Derive", "Family", "Generate", "Params"]

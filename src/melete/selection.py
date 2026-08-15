@@ -406,14 +406,30 @@ def _sample(family: str, config: Config, slot: _Slot) -> dict[str, AxisValue]:
     because §4's pipeline hands one `params` to the family and then through
     `pipeline.realize`, and §9 counts `subdivision` and `accent_pattern` as axes
     like any other.
+
+    A family may **derive** an axis rather than sample it (§7, decision 8): the
+    recency-weighted sampler draws each axis independently and cannot couple one
+    to another, so a value that follows from an already-drawn axis is computed by
+    the family's `derive` hook instead. It is consulted before each axis is drawn
+    — a derived axis is filled from the hook and not sampled, so it never enters
+    the slot's weight inputs — and once more at the end, to add the axes the
+    family derives that are not in its sampled list at all. `arpeggios` is the one
+    user: a triad `quality` derives `hands = 2` and pins `inversion` to root,
+    while a seventh derives `hands = 1` and leaves `inversion` to be sampled.
     """
     params: dict[str, AxisValue] = {}
     pool = config.pool[family].values
+    derive = REGISTRY[family].derive
     for axis in REGISTRY[family].axes:
         switch = _CONDITIONAL_AXES.get((family, axis))
         if switch is not None and params[switch[0]] != switch[1]:
             continue
+        derived = derive(params)
+        if axis in derived:
+            params[axis] = cast("AxisValue", derived[axis])
+            continue
         params[axis] = slot.draw(axis, _candidates(family, axis, pool))
+    params.update(cast("Mapping[str, AxisValue]", derive(params)))
     for axis in rhythm.AXES:
         params[axis] = slot.draw(axis, _candidates(RHYTHM, axis, config.rhythm.values))
     return _realized(params, config.instrument)

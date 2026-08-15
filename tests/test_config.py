@@ -174,6 +174,23 @@ def test_an_axis_belonging_to_another_family_is_rejected() -> None:
     assert "qualities" in str(exc.value)
 
 
+def test_a_triad_quality_under_a_non_arpeggios_family_is_a_loud_error() -> None:
+    """Spec §7, decision 8/9: only `arpeggios` taps. A triad `quality` configured
+    under any other family is caught by the existing per-family axis validation —
+    the family has no `quality` axis — and is never a silent tapped exercise."""
+    for family in ("scales", "intervals", "chromatic"):
+        with pytest.raises(ConfigError) as exc:
+            load_string(f'[pool.{family}]\nqualities = ["maj"]')
+        assert "qualities" in str(exc.value)
+
+
+def test_arpeggios_accepts_the_four_triads_as_quality_candidates() -> None:
+    """Spec §7: the tapped triads ride the existing `qualities` pool alongside
+    the sevenths, so listing them is a plain, valid configuration."""
+    cfg = load_string('[pool.arpeggios]\nqualities = ["maj", "min", "dim", "aug", "maj7"]')
+    assert cfg.pool["arpeggios"].values["quality"] == ("maj", "min", "dim", "aug", "maj7")
+
+
 def test_rhythm_has_no_tempo() -> None:
     # Tempo is a per-family default (decision #20); rhythm is a modifier, not
     # a family, so a tempo there would have nothing to override.
