@@ -66,6 +66,7 @@ made of scalars.
 """
 
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -78,6 +79,33 @@ if TYPE_CHECKING:
 
 #: Left hand, index finger through little finger (spec §6).
 FINGERS = range(1, 5)
+
+
+class Hand(Enum):
+    """Which hand frets a note (epic #67, spec §4).
+
+    Bounded at two on purpose: one or two fretting hands is the whole musical
+    space, and a count above two is not a musical case (spec §11 decision 2).
+    Single-hand families always emit `LEFT`; two-hand tapping is the only path
+    that produces `RIGHT`.
+    """
+
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class Attack(Enum):
+    """How a note is sounded (epic #67, spec §4).
+
+    Orthogonal to `Hand`: either hand can tap, and a slur can occur under either
+    hand. `PLUCKED` is the default, which is what leaves every existing family
+    and golden file unchanged.
+    """
+
+    TAPPED = "tapped"  # attacked by tapping the fret (either hand)
+    PLUCKED = "plucked"  # ordinary picked/plucked note — the default
+    SLURRED = "slurred"  # sounded by hammer-on/pull-off; no fresh attack
+
 
 #: The pitch classes a key's tonic can name (spec §10a). Taken from `theory`'s
 #: table rather than written as a second literal twelve.
@@ -110,9 +138,11 @@ class Note:
     string: int  # index into the profile's tuning, 0 = lowest
     fret: int  # 0 = open
     duration: Fraction  # WRITTEN value; 1 = whole note, 1/4 = quarter
-    finger: int | None  # left hand, 1-4; None = unspecified
+    finger: int | None  # 1-4 of `hand`; None = unspecified
     accent: bool
     tied: bool = False  # tied into the following note; set by the barring pass (melete#87)
+    hand: Hand = Hand.LEFT  # which hand frets the note; single-hand families emit LEFT (epic #67)
+    attack: Attack = Attack.PLUCKED  # how the note is sounded; the default is unchanged (epic #67)
 
     def __post_init__(self) -> None:
         if self.duration <= 0:

@@ -19,6 +19,8 @@ import pytest
 
 from melete.instrument import PROFILES
 from melete.score import (
+    Attack,
+    Hand,
     Measure,
     Note,
     Score,
@@ -190,6 +192,62 @@ def test_note_tied_defaults_false_and_can_be_set() -> None:
     assert _n().tied is False
     tied = Note(pitch=60, string=0, fret=0, duration=QUARTER, finger=None, accent=False, tied=True)
     assert tied.tied is True
+
+
+# --------------------------------------------------------------------------
+# Hand and Attack — two orthogonal Note fields for tapping (epic #67, §4)
+# --------------------------------------------------------------------------
+
+
+def test_hand_has_exactly_left_and_right() -> None:
+    """The hand count is bounded at two on purpose (spec §11 decision 2)."""
+    assert {member.name for member in Hand} == {"LEFT", "RIGHT"}
+
+
+def test_attack_has_tapped_plucked_and_slurred() -> None:
+    """The v1 articulation vocabulary (spec §4)."""
+    assert {member.name for member in Attack} == {"TAPPED", "PLUCKED", "SLURRED"}
+
+
+def test_a_default_note_is_left_and_plucked() -> None:
+    """The defaults preserve every existing family and golden file (spec §4)."""
+    note = _n()
+    assert note.hand is Hand.LEFT
+    assert note.attack is Attack.PLUCKED
+
+
+def test_a_note_can_carry_a_right_hand_tap() -> None:
+    """`hand` and `attack` vary independently — either hand can tap (spec §4)."""
+    note = Note(
+        pitch=60,
+        string=0,
+        fret=0,
+        duration=QUARTER,
+        finger=None,
+        accent=False,
+        hand=Hand.RIGHT,
+        attack=Attack.TAPPED,
+    )
+    assert note.hand is Hand.RIGHT
+    assert note.attack is Attack.TAPPED
+
+
+def test_hand_and_attack_round_trip_every_combination() -> None:
+    """Orthogonal fields: any hand pairs with any attack (spec §4)."""
+    for hand in Hand:
+        for attack in Attack:
+            note = Note(
+                pitch=60,
+                string=0,
+                fret=0,
+                duration=QUARTER,
+                finger=None,
+                accent=False,
+                hand=hand,
+                attack=attack,
+            )
+            assert note.hand is hand
+            assert note.attack is attack
 
 
 def test_a_note_stores_both_pitch_and_position() -> None:
