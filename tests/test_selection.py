@@ -11,13 +11,14 @@ problem §9 exists to solve is actually solved.
 
 from __future__ import annotations
 
+import datetime
 from collections import Counter
 from random import Random
 from typing import TYPE_CHECKING
 
 import pytest
 
-from melete import pipeline, rhythm
+from melete import pipeline, rhythm, session
 from melete.config import RHYTHM, load_string
 from melete.families import REGISTRY, Family
 from melete.instrument import PROFILES, hand_span
@@ -37,6 +38,7 @@ from melete.selection import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from pathlib import Path
 
     from melete.config import AxisValue, Config
     from melete.families import Params
@@ -301,7 +303,9 @@ def test_every_specification_carries_the_axes_its_family_reads_and_the_rhythm_ax
     for spec in specs_of(select(config, [], seeded(5))):
         expected = set(REGISTRY[spec.family].axes) | set(rhythm.AXES)
         # `intervals` in a chromatic context reads no `scale_type`; see below.
-        assert set(spec.params) <= expected
+        # `arpeggios` derives `hands` (§7, decision 8), which is a param but not
+        # a sampled axis, so it is the one permitted extra.
+        assert set(spec.params) - expected <= {"hands"}
         assert expected - set(spec.params) <= {"scale_type"}
 
 
@@ -657,6 +661,99 @@ def test_a_bug_inside_a_family_is_never_resampled_around(monkeypatch: pytest.Mon
 
     with pytest.raises(TypeError, match="not a validity failure"):
         select(scales_config(session=shape(scales=1)), [], seeded(29))
+
+
+# --------------------------------------------------------------------------
+# Tapped triads are quality candidates; `hands` is derived (spec §7, decision 8)
+# --------------------------------------------------------------------------
+
+
+def arpeggios_config(*, qualities: str, session: str, **overrides: str) -> Config:
+    """An `arpeggios`-only configuration with the `qualities` a test dials.
+
+    `roots = "all"` so a triad's tiled box has twelve pitch classes to find an
+    on-neck placement among — the validity gate resamples the roots whose box
+    runs off the neck rather than over-constraining the draw.
+    """
+    return make_config(
+        section("arpeggios", ARPEGGIOS_AXES, qualities=qualities, **overrides),
+        session=session,
+    )
+
+
+def test_a_triad_quality_derives_two_hands() -> None:
+    """§7, decision 8: a drawn triad is a tapped candidate, so `hands` is 2."""
+    config = arpeggios_config(qualities='["maj"]', session=shape(arpeggios=4))
+
+    for spec in specs_of(select(config, [], seeded(30))):
+        assert spec.params["quality"] == "maj"
+        assert spec.params["hands"] == 2
+
+
+def test_a_seventh_quality_derives_one_hand() -> None:
+    """§7, decision 8: a seventh keeps the one-hand journey, so `hands` is 1."""
+    config = arpeggios_config(qualities='["maj7"]', session=shape(arpeggios=4))
+
+    for spec in specs_of(select(config, [], seeded(31))):
+        assert spec.params["quality"] == "maj7"
+        assert spec.params["hands"] == 1
+
+
+def test_a_triad_draw_fixes_inversion_to_root_and_never_samples_it() -> None:
+    """§7, §2: the tapped box is root-position only, so a triad never draws
+    `first`/`second` even when the pool lists them — the value is derived, not
+    sampled, so it does not enter the draw's weight inputs either."""
+    config = arpeggios_config(
+        qualities='["maj"]',
+        session=shape(arpeggios=4),
+        inversions='["root", "first", "second"]',
+    )
+
+    for spec, inputs in select(config, [], seeded(32)):
+        assert spec.params["inversion"] == "root"
+        assert "inversion" not in inputs.distances
+
+
+def test_a_seventh_draw_samples_its_inversion_normally() -> None:
+    """A seventh is not a tapped candidate, so `inversion` is a sampled axis
+    like any other — it enters both the params and the weight inputs."""
+    config = arpeggios_config(
+        qualities='["maj7"]',
+        session=shape(arpeggios=4),
+        inversions='["root", "first", "second"]',
+    )
+
+    for spec, inputs in select(config, [], seeded(33)):
+        assert spec.params["inversion"] in {"root", "first", "second"}
+        assert "inversion" in inputs.distances
+
+
+def test_the_session_log_round_trips_the_derived_hands(tmp_path: Path) -> None:
+    """Decision 8: `hands` is recorded like any other axis, so a written session
+    reads back with it — 2 for every triad, 1 for every seventh."""
+    config = arpeggios_config(qualities='["maj", "maj7"]', session=shape(arpeggios=8))
+    picks = select(config, [], seeded(34))
+    date = datetime.date(2026, 8, 15)
+
+    recorded = session.record(date, config, picks, seed=1)
+    session.write(tmp_path, recorded)
+    reread = session.read(session.directory(tmp_path, date))
+
+    assert reread.exercises == recorded.exercises  # the whole spec round-trips
+    for spec in reread.exercises:
+        expected = 2 if spec.params["quality"] == "maj" else 1
+        assert spec.params["hands"] == expected
+        assert isinstance(spec.params["hands"], int)
+
+
+def test_an_untapped_arpeggios_pool_records_one_hand_and_is_unchanged() -> None:
+    """The default pool lists no triads: every quality is a seventh, so every
+    draw is one-hand and the sampled axes are exactly what they were before."""
+    config = arpeggios_config(qualities='["maj7", "min7", "dom7"]', session=shape(arpeggios=6))
+
+    for spec, inputs in select(config, [], seeded(35)):
+        assert spec.params["hands"] == 1
+        assert "inversion" in inputs.distances  # inversion is sampled as ever
 
 
 # --------------------------------------------------------------------------

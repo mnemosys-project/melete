@@ -82,7 +82,7 @@ selector drew, and §9's validity gate exists precisely to resample this case.
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from melete import theory, vocabulary
 from melete.families._shared import Parameters, box, layout_hints, realizable, windowed
@@ -171,6 +171,47 @@ _TRIAD_TONES = 3
 
 #: The axes named in a reach failure the two-hand box raises (spec §13).
 _TAP_AXES = "root, quality, inversion"
+
+#: §7's derived `hands` axis: how many hands an exercise is played with. It is
+#: never sampled — the recency-weighted selector draws axes independently and
+#: cannot couple `hands` to `quality` (decision 8) — so this family *derives* it
+#: from the drawn quality instead, and the selector records it like any other
+#: axis for coverage and replay.
+HANDS = "hands"
+_ONE_HAND = 1
+_TWO_HANDS = 2
+
+
+def derive(params: Mapping[str, object]) -> dict[str, object]:
+    """The axes `arpeggios` derives from a drawn quality, not sampled (§7, decision 8).
+
+    Tapping is not a sampled axis: a **triad** quality is inherently a tapped
+    candidate (there is no one-hand triad seed shape — decision 10), so the
+    selector lists the four triads alongside the sevenths in the ordinary
+    `qualities` pool and this function turns the drawn quality into the two
+    values that follow from it deterministically:
+
+    * `hands` — `2` for a triad, `1` for a seventh — so coverage accounting and
+      replay see the hand count like any other axis without a `hands`↔`quality`
+      coupling the independent sampler cannot express.
+    * `inversion` — pinned to root for a triad, because the captured tap box is a
+      root-position shape (spec §2) and a non-root triad raises (`_tapped_ascending`).
+      Fixing it here means the selector never *samples* `first`/`second` for a
+      triad and then discards it — the value is derived, so a triad draw does not
+      consume the `inversion` pool at all. A seventh is not a tapped candidate,
+      so its `inversion` is left to be sampled normally (it is absent from the
+      returned mapping).
+
+    Called incrementally by the selector as it samples, so `quality` may not have
+    been drawn yet; until it has, there is nothing to derive and the mapping is
+    empty.
+    """
+    quality = params.get("quality")
+    if quality is None:
+        return {}
+    if _is_triad(cast("str", quality)):
+        return {HANDS: _TWO_HANDS, "inversion": INVERSIONS[0]}
+    return {HANDS: _ONE_HAND}
 
 
 def _tones_to_the_top(octave_len: int, top: int) -> int:
