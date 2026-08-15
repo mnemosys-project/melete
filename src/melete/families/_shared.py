@@ -30,13 +30,20 @@ without the rest (see `chromatic._strings`) and because the off-by-one it
 encodes — the turnaround element is played once, not twice — is the single
 easiest thing here to get wrong.
 
-**The one-hand box.** `box` is the single hand-reach-aware placement primitive
-(spec §4): it places a pitch run under one hand anchored at a pinned base fret,
-refusing when the result is wider than one `position_span` (issue #57). It is
-the seam #67's two-hand strategy plugs into — `box` takes 1 *or* 2 anchors, and
-N ≥ 2 raises `NotImplementedError` naming that epic. The traversals that lay runs
-of notes along the strings stay in the families and in `journey`, because what a
-run *is* differs between a scale and a chord.
+**The box — one hand or two.** `box` is the single hand-reach-aware placement
+primitive (spec §4): under **one** anchor it places a pitch run under one hand
+pinned at a base fret, refusing when the result is wider than one `position_span`
+(issue #57). It is also the seam #67's two-hand tapping plugs into — under **two**
+anchors (left lower, right higher) plus a caller-supplied per-note hand partition,
+it places each hand's tones near that hand's own anchor, requires each hand to fit
+one `position_span`, requires both hands non-empty, and returns each note's
+`(string, fret, hand)`. The partition is *data the caller owns* (the tap shape,
+spec §5–§6), not a rule `box` derives: the hands leapfrog and no global fret
+ordering holds (§11 decision 6). `box` remains the one place that counts hands and
+honours `position_span`; a count other than 1 or 2 raises `NotImplementedError`
+naming that epic. The traversals that lay runs of notes along the strings stay in
+the families and in `journey`, because what a run *is* differs between a scale and
+a chord.
 
 ## What is deliberately not here
 
@@ -50,11 +57,12 @@ did move, takes the axis list it should name rather than inventing one.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 from melete import vocabulary
 from melete.instrument import hand_span, positions
 from melete.layout import LayoutHints
+from melete.score import Hand
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -165,6 +173,16 @@ def _reachable(
     return places
 
 
+def _nearest(choices: Sequence[tuple[int, int]], base: int) -> tuple[int, int]:
+    """The position nearest the anchor base fret; ties to lower fret, lower string.
+
+    The same rule the one-anchor path applies inline; the two-anchor path applies
+    it once per hand, against that hand's own anchor.
+    """
+    return min(choices, key=lambda p: (abs(p[1] - base), p[0]))
+
+
+@overload
 def box(
     profile: InstrumentProfile,
     pitches: Sequence[int],
@@ -172,21 +190,64 @@ def box(
     anchors: tuple[int, ...],
     family: str,
     axes: str,
-) -> list[tuple[int, int]]:
-    """Place `pitches` under one hand anchored at `anchors[0]` (spec §4).
+    hands: None = None,
+) -> list[tuple[int, int]]: ...  # pragma: no cover - typing overload
 
-    Each pitch takes the position within `strings` nearest the anchor base fret,
-    ties to the lower fret then the lower string. The result must fit one
-    `position_span`, or this raises — the anchor is pinned, so unlike the
-    superseded `boxed` it never drifts off the root to minimise travel. Two
-    anchors are the #67 two-hand seam and are not realized here.
+
+@overload
+def box(
+    profile: InstrumentProfile,
+    pitches: Sequence[int],
+    strings: tuple[int, ...],
+    anchors: tuple[int, ...],
+    family: str,
+    axes: str,
+    hands: Sequence[Hand],
+) -> list[tuple[int, int, Hand]]: ...  # pragma: no cover - typing overload
+
+
+def box(
+    profile: InstrumentProfile,
+    pitches: Sequence[int],
+    strings: tuple[int, ...],
+    anchors: tuple[int, ...],
+    family: str,
+    axes: str,
+    hands: Sequence[Hand] | None = None,
+) -> list[tuple[int, int]] | list[tuple[int, int, Hand]]:
+    """Place `pitches` under one hand, or two, honouring `position_span` (spec §4, §6).
+
+    **One anchor (one hand).** Each pitch takes the position within `strings`
+    nearest the anchor base fret, ties to the lower fret then the lower string.
+    The result must fit one `position_span`, or this raises — the anchor is
+    pinned, so unlike the superseded `boxed` it never drifts off the root to
+    minimise travel. `hands` is not used and must be omitted.
+
+    **Two anchors (two-hand tapping, #67).** `anchors` is `(left, right)` (left
+    lower, right higher) and `hands` supplies, per pitch, which hand frets it —
+    the tap shape owns that partition, not `box` (spec §5–§6). Each hand's tones
+    are placed near that hand's own anchor by the same nearest-fret rule; each
+    hand must fit one `position_span`; both hands must be non-empty. Returns each
+    note's `(string, fret, hand)` in `pitches` order. The hands leapfrog: no
+    global fret ordering holds, the partition alone decides hands (§11 dec. 6).
+    An unrealizable two-hand box raises `ValueError` naming the pitches, profile
+    and axes; §9's validity gate resamples rather than clamping a layout to fit.
     """
+    if len(anchors) == 2:
+        return _two_hand_box(profile, pitches, strings, anchors, hands, family, axes)
     if len(anchors) != 1:
         msg = (
-            f"box: {len(anchors)} anchors is the two-hand seam owned by #67; "
-            f"this epic lays out one hand"
+            f"box: {len(anchors)} anchors is neither one hand nor the two-hand "
+            f"tapping seam owned by #67; a fretting-hand count other than 1 or 2 "
+            f"is not a musical case"
         )
         raise NotImplementedError(msg)
+    if hands is not None:
+        msg = (
+            f"{family}: a one-anchor box places a single hand and takes no hand "
+            f"partition; pass two anchors to lay out two hands (#67)"
+        )
+        raise ValueError(msg)
     base = anchors[0]
     choices = [_reachable(profile, pitch, strings, family, axes) for pitch in pitches]
     places = [min(c, key=lambda p: (abs(p[1] - base), p[0])) for c in choices]
@@ -199,6 +260,63 @@ def box(
         )
         raise ValueError(msg)
     return places
+
+
+def _two_hand_box(
+    profile: InstrumentProfile,
+    pitches: Sequence[int],
+    strings: tuple[int, ...],
+    anchors: tuple[int, ...],
+    hands: Sequence[Hand] | None,
+    family: str,
+    axes: str,
+) -> list[tuple[int, int, Hand]]:
+    """Realize `box`'s two-anchor path: each hand near its own anchor (spec §6).
+
+    `anchors` is `(left, right)`; `hands` is the caller's per-pitch partition. The
+    reach math lives here and only here, so this is the one place that counts
+    hands and honours `position_span` across two of them.
+    """
+    if hands is None:
+        msg = (
+            f"{family}: a two-anchor box needs a per-note hand partition, one "
+            f"{Hand.__name__} per pitch; the tap shape owns it (#67, spec §6)"
+        )
+        raise ValueError(msg)
+    if len(hands) != len(pitches):
+        msg = (
+            f"{family}: the hand partition has {len(hands)} entries for "
+            f"{len(pitches)} pitches; it names the hand of every note (#67)"
+        )
+        raise ValueError(msg)
+    if Hand.LEFT not in hands or Hand.RIGHT not in hands:
+        msg = (
+            f"{family}: a two-hand box needs both hands non-empty, but the "
+            f"partition {[h.name for h in hands]} names only one; a single hand "
+            f"is the one-anchor path (#67, spec §6)"
+        )
+        raise ValueError(msg)
+
+    anchor_of = {Hand.LEFT: anchors[0], Hand.RIGHT: anchors[1]}
+    places: list[tuple[int, int]] = []
+    for pitch, hand in zip(pitches, hands, strict=True):
+        choices = _reachable(profile, pitch, strings, family, axes)
+        places.append(_nearest(choices, anchor_of[hand]))
+
+    for hand in (Hand.LEFT, Hand.RIGHT):
+        frets = [fret for (_string, fret), h in zip(places, hands, strict=True) if h is hand]
+        span = hand_span(frets)
+        if span > profile.position_span:
+            these = [pitch for pitch, h in zip(pitches, hands, strict=True) if h is hand]
+            msg = (
+                f"{family}: the {hand.name.lower()} hand's tones {these} span {span} frets "
+                f"against a position of {profile.position_span} on profile {profile.name!r}: "
+                f"{axes} cannot all be satisfied under two hands. §9 resamples this rather "
+                f"than engraving a shift"
+            )
+            raise ValueError(msg)
+
+    return [(string, fret, hand) for (string, fret), hand in zip(places, hands, strict=True)]
 
 
 def there_and_back[T](items: Sequence[T]) -> list[T]:
