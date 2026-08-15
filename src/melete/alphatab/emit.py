@@ -92,10 +92,10 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory
-from melete.score import Measure, Note, Tuplet, bar
+from melete.score import Attack, Hand, Measure, Note, Tuplet, bar
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
     from melete.score import Score
 
@@ -125,6 +125,26 @@ TIE_FRET = "-"
 #: bar for the marker, so it is prepended to the last bar's beats (melete#112).
 REPEAT_OPEN = "\\ro"
 REPEAT_CLOSE = "\\rc 2"
+
+#: The tapping note effects (epic #67, Task D1). Every token was confirmed
+#: against `@coderline/alphatab` 1.8.4 by Task A1's spike
+#: (`docs/reports/alphatex-tapping-effects.md`) by rendering a probe and reading
+#: the effect back off `Content/score.gpif`:
+#:
+#: * `tt` marks a **right-hand** tap (`(RIGHT, TAPPED)`); it round-trips to the
+#:   note's `Tapped` property. It is a beat-level marker in alphaTab's model but
+#:   is accepted inside a note's `{…}` brace and applies to that note's beat, so
+#:   it rides the one note-effect brace with the rest.
+#: * `lht` marks a **left-hand** tap (`(LEFT, TAPPED)`) -> `LeftHandTapped`.
+#: * `h` marks a hammer-on/pull-off and sits on the **origin** note — the note
+#:   *before* a `SLURRED` note on the same string and hand. alphaTab infers the
+#:   direction (hammer when the next note ascends, pull when it descends) and the
+#:   destination from the following note's pitch, so there is a single token for
+#:   both and it is stranded if placed on the destination or a run's last note.
+#:   `_origin_hammers` computes the origin lookahead over the whole barred voice.
+HAMMER_PULL = "h"
+RIGHT_HAND_TAP = "tt"
+LEFT_HAND_TAP = "lht"
 
 #: The track-property directive that puts each exercise on its own system in a
 #: book (melete#138). alphaTab lays out `defaultSystemsLayout` bars per system —
@@ -384,19 +404,29 @@ def _note_token(
     signature: dict[str, int],
     tie: _TieState,
     ratio: tuple[int, int] | None,
+    origins: Iterator[bool],
 ) -> str:
     r"""One beat: `<fret>.<string>{note-effects}.<duration>{beat-effects}`.
 
     A tie destination — the note after a `tied` one — is emitted with `-` for its
     fret and no note effects: a sustained note is not re-fingered, re-accented or
     re-spelled. Otherwise the fret is the note's, and the note-effect brace before
-    the duration carries, in order, the forced accidental, the left-hand
-    fingering and the accent — the three that must sit before the duration
-    (spike Q3). `ratio`, when set, is the enclosing tuplet's (cumulative) ratio.
+    the duration carries the forced accidental, then the tap articulation
+    (`tt`/`lht`), the per-hand fingering (`lf`/`rf`), the hammer/pull `h` and the
+    accent — the effects that must sit before the duration (spike Q3, epic #67
+    Task D1). `ratio`, when set, is the enclosing tuplet's (cumulative) ratio.
+
+    `origins` yields, in emission order, whether each note is a hammer/pull
+    *origin* — the note before a `SLURRED` note on the same string and hand
+    (`_origin_hammers`). One value is consumed per note, tie destinations
+    included, so the lookahead stays in lockstep with the barred voice; a tie
+    destination discards it, since a sustained note carries no fresh
+    articulation.
     """
     number, dots = duration_token(note.duration)
     string = _alphatex_string(note.string, string_count)
     beat_effects = _beat_effects(dots, ratio)
+    is_origin = next(origins)
 
     if tie.previous_tied:
         tie.previous_tied = note.tied
@@ -407,10 +437,16 @@ def _note_token(
     accidental = _accidental(note, key, signature)
     if accidental is not None:
         effects.append(f"acc {accidental}")
+    if note.attack is Attack.TAPPED:
+        effects.append(RIGHT_HAND_TAP if note.hand is Hand.RIGHT else LEFT_HAND_TAP)
     if note.finger is not None:
-        # melete fingers index..little as 1..4; alphaTab's `lf` is thumb..little
-        # as 1..5, so the fretting fingers are 2..5 — one more than melete's.
-        effects.append(f"lf {note.finger + 1}")
+        # melete fingers index..little as 1..4; alphaTab's `lf`/`rf` are
+        # thumb..little as 1..5, so the fretting fingers are 2..5 — one more than
+        # melete's. `lf` is left-hand only; a right-hand note takes `rf` (epic #67).
+        fingering = "lf" if note.hand is Hand.LEFT else "rf"
+        effects.append(f"{fingering} {note.finger + 1}")
+    if is_origin:
+        effects.append(HAMMER_PULL)
     if note.accent:
         effects.append("ac")
     note_effects = "{" + " ".join(effects) + "}" if effects else ""
@@ -425,6 +461,7 @@ def _voice_tokens(
     signature: dict[str, int],
     tie: _TieState,
     ratio: tuple[int, int] | None,
+    origins: Iterator[bool],
 ) -> list[str]:
     """One beat token per note, tuplets expanded in place.
 
@@ -432,16 +469,64 @@ def _voice_tokens(
     each level scales the ratio it passes down, so a leaf note carries the
     product of every enclosing tuplet's ratio and the rhythm stays exact.
     `ratio` is the ratio accumulated so far — `None` outside any tuplet.
+
+    `origins` is the hammer/pull-origin lookahead, threaded through the same walk
+    so each note draws its own flag in emission order (`_note_token`).
     """
     tokens: list[str] = []
     for item in voice:
         if isinstance(item, Tuplet):
             inner = ratio or (1, 1)
             combined = (inner[0] * item.ratio[0], inner[1] * item.ratio[1])
-            tokens += _voice_tokens(item.notes, string_count, key, signature, tie, combined)
+            tokens += _voice_tokens(
+                item.notes, string_count, key, signature, tie, combined, origins
+            )
         else:
-            tokens.append(_note_token(item, string_count, key, signature, tie, ratio))
+            tokens.append(_note_token(item, string_count, key, signature, tie, ratio, origins))
     return tokens
+
+
+def _flatten(voice: Sequence[Note | Tuplet]) -> Iterator[Note]:
+    """Every note the emitter will place, in emission order, tuplets expanded.
+
+    Mirrors `_voice_tokens`'s walk exactly — recursing into (possibly nested)
+    tuplets — so a lookahead computed over this sequence stays in lockstep with
+    the tokens. It recurses where `score.notes` flattens only one level, because
+    the emitter itself flattens nested tuplets (spike Q4).
+    """
+    for item in voice:
+        if isinstance(item, Tuplet):
+            yield from _flatten(item.notes)
+        else:
+            yield item
+
+
+def _origin_hammers(measures: Sequence[Measure]) -> list[bool]:
+    """For each note across the barred voice, whether it is a hammer/pull origin.
+
+    A note is an origin — and carries `h` (spec §6's derived legato; A1) — when
+    the **next** note in emission order is `SLURRED` and frets the same string
+    with the same hand. alphaTab reads the direction and destination off that
+    next note's pitch, so the single `h` sits on the origin and never the
+    destination. A note already tied *into* its successor is excluded: a tie is
+    the same sustained pitch continuing, not a hammer to a new note, so it is
+    never a legato origin.
+
+    The lookahead spans the whole exercise, not one bar, so a hammer from a bar's
+    last note into the next bar's first is marked correctly.
+    """
+    flat = [note for measure in measures for note in _flatten(measure.voice)]
+    origins: list[bool] = []
+    for index, note in enumerate(flat):
+        following = flat[index + 1] if index + 1 < len(flat) else None
+        origins.append(
+            following is not None
+            and following.attack is Attack.SLURRED
+            and following.string == note.string
+            and following.hand is note.hand
+            and not note.tied
+        )
+    return origins
 
 
 def _measure_bodies(
@@ -455,10 +540,13 @@ def _measure_bodies(
     The tie flag is shared across the whole list so a split note continues
     correctly from one bar into the next; the `|` between measures is added by the
     caller, which prepends each exercise's leading directives to its first bar.
+    The hammer/pull-origin lookahead (`_origin_hammers`) is computed once over the
+    whole barred voice and consumed note-by-note in the same order.
     """
     tie = _TieState()
+    origins = iter(_origin_hammers(measures))
     return [
-        " ".join(_voice_tokens(measure.voice, string_count, key, signature, tie, None))
+        " ".join(_voice_tokens(measure.voice, string_count, key, signature, tie, None, origins))
         for measure in measures
     ]
 
