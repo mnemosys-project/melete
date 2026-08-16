@@ -17,7 +17,7 @@ up. The long game is the passage → hand-fitting *solve* the instructor describ
 | # | File | Contents |
 |---|---|---|
 | 1 | `build/argeggio-tapping-examples.gp` | First example — E min/maj/dim/aug, played as a rolling **cascade** (notes repeat as the window advances). A special case. |
-| 2 | `build/e1-reference/tapped-corrected.gp` | Corrected full-fretboard runs — E aug (two descents), E maj, E min, E dim; clean 8-note ascending + symmetric descending lines. The realistic reference. |
+| 2 | `build/e1-reference/tapped-corrected.gp` | Full-fretboard runs (rev. 2026-08-16): the four **standard** triad shapes — E maj, E min, E dim — plus E aug in **two** fingerings (standard box + a symmetry-driven **alternate**, both supplied ascending *and* descending). Clean 8-note lines. The realistic reference. |
 
 ## Conventions
 
@@ -35,6 +35,8 @@ up. The long game is the passage → hand-fitting *solve* the instructor describ
 Within each octave box the two lower chord tones (root, third) are **left**-hand
 tapped and the two upper (fifth, octave-root) are **right**-hand tapped.
 *Evidence:* both examples, all qualities. This is the box's core partition (spec §5).
+This is the **standard-shape** split; the augmented **alternate** (R6) breaks it —
+the one documented exception so far, and it is driven by interval symmetry.
 
 ### R2 — Left-hand finger pair mirrors the third's fret gap  · **high confidence**
 
@@ -76,14 +78,25 @@ third G♯2 is **ring** ascending, **index** descending), because the hand's anc
 and approach flip with direction. *Evidence:* corrected example, maj and min
 descents (bars 6, 8). *Confirm with:* more descents across qualities.
 
-### R6 — Augmented's symmetry gives two valid descents; the entry point picks one  · **medium confidence**
+### R6 — Augmented's symmetry admits an alternate diagonal fingering, both directions  · **high confidence**
 
-Because the augmented tones are evenly spaced (a **fret-diagonal**), descending
-admits **two** ergonomic fingerings; the one used is fixed by where in the 3-note
-diagonal the pattern is entered (you start mid-diagonal). *Evidence:* corrected
-example, E aug bars 2 vs 4 — same ascent, two different descents. *Implication:* a
-rule engine must *choose* here, not derive a unique answer — the first genuine
-branch point.
+Because the augmented tones are evenly spaced (every interval a major third — a
+uniform **fret-diagonal**), augmented admits a second, equally legitimate fingering
+the other triads do not. It is a **3-note repeating cell** climbing the diagonal —
+**left middle (root), left index (third), right index (#5)** — applied identically
+ascending and descending:
+
+```
+L2 L1 R1 · L2 L1 R1 · …
+```
+
+Unlike the standard box (R1), the **right hand taps only the #5**; the left hand
+walks root + third + octave-root up the diagonal. *Evidence:* revised corrected
+example, E aug bars 3–4 (alternate) vs 1–2 (standard). This is the first
+**quality-specific alternate driven by interval symmetry** — a documented
+exception to R1, and a preview of how the *structure of the passage* (not the chord
+label) selects the fingering. The instructor notes it is legitimate but
+less-frequently used.
 
 ### R7 — Exercise shape: full-fretboard ascent, symmetric descent, clean line  · **high confidence**
 
@@ -99,8 +112,11 @@ descends asymmetrically (7 up / 5 down) — a bug this rule pins.
   the finger logic extend?
 - The **advanced folding** exercises (the ones tapping really exists for): do R1–R7
   survive, or does the passage-specific hand-fitting override them?
-- R6's two-descent choice — is the entry-point rule the whole story, or are there
-  cases where neither diagonal fingering is preferred?
+- Do other **symmetric** structures (diminished-seventh, whole-tone fragments)
+  admit similar diagonal alternates the way augmented does (R6)? Symmetry may be
+  the general trigger for an alternate fingering.
+- When *is* the augmented alternate (R6) chosen over the standard (R1) — purely
+  the player's preference, or does the surrounding passage select it?
 
 ## Relationship to the current implementation
 
@@ -114,3 +130,7 @@ emit) stay; only the finger/hand assignment becomes rule-driven.
 ## Changelog
 
 - 2026-08-16 — Seeded from corpus #1–#2; R1–R7 drafted.
+- 2026-08-16 (rev) — corpus #2 revised: augmented reworked to standard + a
+  symmetry-driven **diagonal alternate** (both directions); R6 rewritten and
+  promoted to high confidence; R1 noted as the standard-shape split with the aug
+  alternate as its exception; dim top-note slip corrected (G3).
