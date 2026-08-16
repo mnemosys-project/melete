@@ -18,6 +18,7 @@ up. The long game is the passage → hand-fitting *solve* the instructor describ
 |---|---|---|
 | 1 | `build/argeggio-tapping-examples.gp` | First example — E min/maj/dim/aug, played as a rolling **cascade** (notes repeat as the window advances). A special case. |
 | 2 | `build/e1-reference/tapped-corrected.gp` | Full-fretboard runs (rev. 2026-08-16): the four **standard** triad shapes — E maj, E min, E dim — plus E aug in **two** fingerings (standard box + a symmetry-driven **alternate**, both supplied ascending *and* descending). Clean 8-note lines. The realistic reference. |
+| 3 | `build/e1-reference/tapped-triads-groups-of-3.gp` | The four triads played as **rolling triplets** — overlapping 3-note groups advancing by one (a "sixes" pattern) up and back. Shows the *fold*: a pitch is re-handed as the window advances. All tapped. |
 
 ## Conventions
 
@@ -105,6 +106,26 @@ down on this 6-string bass), one note per chord tone — **no cascade repeats** 
 the realistic form. *Evidence:* corrected example. *Note:* melete's current driver
 descends asymmetrically (7 up / 5 down) — a bug this rule pins.
 
+### R8 — In rolling/overlapping groupings, a pitch is re-handed by its role in the local window  · **high confidence**
+
+When the same notes are played in **overlapping groups** — rolling triplets, three
+notes advancing by one — a given pitch takes a **different hand/finger in each group
+it appears in**, chosen by its *role in that group*, not by the pitch. *Evidence:*
+groups-of-three example — E2 is **right-middle** as the top of `[G♯1, C2, E2]`, then
+**left-middle** as the anchor of `[C2, E2, G♯2]`. The hand follows the flow: a note
+reached as a group's *arrival* is right-hand; the same note serving as the next
+group's *low anchor* is left-hand, freeing the right to reach up. This is the
+**fold**, and it generalises R5 from direction-dependence to
+**local-window-dependence**. (All notes tapped — no legato.)
+
+**Implication — the load-bearing one.** Fingering is not a per-pitch or per-shape
+lookup. It is a function of **local context** as the pattern folds up the passage,
+so a rule engine must *walk* the passage and assign each note's hand/finger from its
+neighbourhood — what hand is free, what is arriving, what comes next. That is a small
+solver / state machine: precisely the passage → hand-fitting **solve** the instructor
+described. R1–R7 are the *constraints and preferences* that solve feeds on; R8 is why
+it must be a solve and not a table.
+
 ## Open questions (need more examples)
 
 - Do the rules hold for **other roots** (expected: yes, root-relative)?
@@ -134,3 +155,7 @@ emit) stay; only the finger/hand assignment becomes rule-driven.
   symmetry-driven **diagonal alternate** (both directions); R6 rewritten and
   promoted to high confidence; R1 noted as the standard-shape split with the aug
   alternate as its exception; dim top-note slip corrected (G3).
+- 2026-08-16 (corpus #3) — added the rolling groups-of-three example; new rule
+  **R8** (local-window re-handing / the fold), generalising R5, and the finding
+  that fingering is a **local-context solve**, not a table. R1–R7 reframed as the
+  constraints that solve consumes.
