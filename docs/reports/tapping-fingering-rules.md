@@ -19,6 +19,7 @@ up. The long game is the passage → hand-fitting *solve* the instructor describ
 | 1 | `build/argeggio-tapping-examples.gp` | First example — E min/maj/dim/aug, played as a rolling **cascade** (notes repeat as the window advances). A special case. |
 | 2 | `build/e1-reference/tapped-corrected.gp` | Full-fretboard runs (rev. 2026-08-16): the four **standard** triad shapes — E maj, E min, E dim — plus E aug in **two** fingerings (standard box + a symmetry-driven **alternate**, both supplied ascending *and* descending). Clean 8-note lines. The realistic reference. |
 | 3 | `build/e1-reference/tapped-triads-groups-of-3.gp` | The four triads played as **rolling triplets** — overlapping 3-note groups advancing by one (a "sixes" pattern) up and back. Shows the *fold*: a pitch is re-handed as the window advances. All tapped. |
+| 4 | `build/e1-reference/tapped-3nps-scales.gp` | **E harmonic-minor, 3 notes per string** — the first **scale** example. Ascending uses left-tap→hammer→right-tap per string; descending uses a **pre-fretted pluck-cascade** (tap the top, pull-off down). Legato (hammer/pull) is central here. |
 
 ## Conventions
 
@@ -126,6 +127,39 @@ solver / state machine: precisely the passage → hand-fitting **solve** the ins
 described. R1–R7 are the *constraints and preferences* that solve feeds on; R8 is why
 it must be a solve and not a table.
 
+### R9 — Scales tap per **string** (3-note groups); ascending and descending articulate differently  · **high confidence (new domain: scales)**
+
+A 3-notes-per-string scale taps in **per-string groups of three** — a different
+unit from the arpeggio's per-octave box:
+
+- **Ascending:** on each string, **left-tap** the first note, **hammer-on** (left)
+  to the second, **right-tap** the third — `Ltap · hammer · Rtap`. Two left fingers
+  + right index, the same hand economy as R1 but organised by string.
+- **Descending:** the group is **pre-fretted** (all three fingers set at once) and
+  sounded top-down — **right-tap** the top, then **pull-off · pull-off** to the two
+  lower notes — `Rtap · pull · pull`.
+
+*Evidence:* corpus #4, E harmonic-minor 3nps (bar 1 ascending, bar 2 descending).
+*Note:* unlike the arpeggios (all tapped), **scales lean on hammer/pull legato** —
+so the derived-legato pass (dormant for the triad boxes, R7/§6) is **load-bearing**
+here.
+
+### R10 — The "pre-fretted pluck-cascade" is a *technique identity*, not a new note-attack  · **discussion / design**
+
+The descending scale technique the instructor flags — pre-fret the whole group as a
+grip, sound the top by tapping, then *pluck/pull* down through the held notes — is
+musically distinct (a different feel, a flourish at speed) but at the **note level
+renders identically to tap + pull-offs**: the struck note is `TAPPED`, the cascaded
+notes are `SLURRED`, which the emitter already renders as `Tapped` + `Hopo`. So
+melete's existing `attack` model *can render it*; what it does not capture is the
+**grip/pluck technique identity** (fret-all-first; active pluck vs passive pull).
+
+**Recommendation:** carry that identity as a **phrase/exercise-level technique tag**
+(driving instruction text, and possibly future notation), **not** a new `attack`
+value that would not change the render. The execution *choice* it implies — a
+pull-off cascade vs re-tapping each note — is a real note-level difference the model
+already expresses (`SLURRED` vs `TAPPED`); the tag records which the exercise intends.
+
 ## Open questions (need more examples)
 
 - Do the rules hold for **other roots** (expected: yes, root-relative)?
@@ -159,3 +193,8 @@ emit) stay; only the finger/hand assignment becomes rule-driven.
   **R8** (local-window re-handing / the fold), generalising R5, and the finding
   that fingering is a **local-context solve**, not a table. R1–R7 reframed as the
   constraints that solve consumes.
+- 2026-08-16 (corpus #4) — added E harmonic-minor 3nps scales, opening the
+  **scales** domain: **R9** (per-string 3-note groups; ascending tap→hammer→tap,
+  descending pre-fretted pull-cascade) makes legato load-bearing; **R10** records
+  the pre-fretted pluck-cascade as a *technique identity* that renders as tap+slur
+  — a phrase-level tag, not a new `attack`.
