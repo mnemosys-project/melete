@@ -20,6 +20,7 @@ up. The long game is the passage → hand-fitting *solve* the instructor describ
 | 2 | `build/e1-reference/tapped-corrected.gp` | Full-fretboard runs (rev. 2026-08-16): the four **standard** triad shapes — E maj, E min, E dim — plus E aug in **two** fingerings (standard box + a symmetry-driven **alternate**, both supplied ascending *and* descending). Clean 8-note lines. The realistic reference. |
 | 3 | `build/e1-reference/tapped-triads-groups-of-3.gp` | The four triads played as **rolling triplets** — overlapping 3-note groups advancing by one (a "sixes" pattern) up and back. Shows the *fold*: a pitch is re-handed as the window advances. All tapped. |
 | 4 | `build/e1-reference/tapped-3nps-scales.gp` | **E harmonic-minor, 3 notes per string** — the first **scale** example. Ascending uses left-tap→hammer→right-tap per string; descending uses a **pre-fretted pluck-cascade** (tap the top, pull-off down). Legato (hammer/pull) is central here. |
+| 5 | `build/Tapping_Arpeggios_7th_Chords.gp` | **Seventh-chord** shapes on a **5-string bass** (B E A D G): the compact two-string grid for maj7/dom7/min7/m7♭5/dim7, plus an alternate four-string diagonal voicing. All tapped, pitch-preserving. |
 
 ## Conventions
 
@@ -160,6 +161,34 @@ value that would not change the render. The execution *choice* it implies — a
 pull-off cascade vs re-tapping each note — is a real note-level difference the model
 already expresses (`SLURRED` vs `TAPPED`); the tag records which the exercise intends.
 
+### R11 — Seventh chords use a compact two-string grid — simpler than the triads  · **high confidence (new domain: 7ths)**
+
+A seventh chord's four tones tap as a **2-string × 2-hand grid** — each string
+carries two chord tones, the **lower-fret note left-hand-tapped, the higher-fret
+note right-hand-tapped**:
+
+- string N: **root** (left) + **third** (right)
+- string N+1: **fifth** (left) + **seventh** (right)
+
+So **left = root + fifth, right = third + seventh** — the "1–5 left, 3–7 right"
+split. There is **no octave-tiling overlap or leapfrog** (the four tones fill the
+grid), which is why sevenths are *simpler* than the triads. *Evidence:* corpus #5
+(5-string bass), all five qualities — **maj7, dom7, min7, m7♭5, dim7** — the
+third/fifth/seventh frets shifting per quality; pitch-preserving (one octave). An
+**alternate** four-string diagonal voicing also appears (one note per string;
+right = root+third on the low strings, left = fifth+seventh on the high strings).
+
+*Unifies with the triads (medium confidence):* the constant across both is
+**on each string, lower fret → left hand, higher fret → right hand**; only the
+chord-tone-to-string *voicing* differs (a triad packs root+third low; a seventh
+spreads root+third / fifth+seventh across two strings). R1's "left = root+third" is
+a triad-voicing consequence of this deeper per-string rule.
+
+*Corrects a spec guess:* spec §12 assumed sevenths would "lean stretched"
+(pitch-changing). They do **not** — the natural seventh shape is compact and
+pitch-preserving; the octave-displaced stretched voicings remain a separate
+deferred item.
+
 ## Open questions (need more examples)
 
 - Do the rules hold for **other roots** (expected: yes, root-relative)?
@@ -198,3 +227,9 @@ emit) stay; only the finger/hand assignment becomes rule-driven.
   descending pre-fretted pull-cascade) makes legato load-bearing; **R10** records
   the pre-fretted pluck-cascade as a *technique identity* that renders as tap+slur
   — a phrase-level tag, not a new `attack`.
+- 2026-08-17 (corpus #5) — added seventh-chord shapes (5-string bass): **R11** —
+  sevenths tap as a compact **two-string grid** (left root+fifth, right
+  third+seventh), simpler than the triads, all five qualities, pitch-preserving;
+  plus an alternate four-string diagonal voicing. Surfaced the unifying per-string
+  **low = left / high = right** principle, and corrected the spec's "sevenths lean
+  stretched" guess.
