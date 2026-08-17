@@ -33,6 +33,10 @@ BASS6 = PROFILES["bass6"]  # tuning B0 E1 A1 D2 G2 C3 = 23 28 33 38 43 48; span 
 _OCTAVE = 12
 _TRIADS = ("maj", "min", "dim", "aug")
 
+#: R2 — the left-hand root finger mirrors the third's fret gap: middle (2) for a
+#: major/augmented third, ring (3) for a minor/diminished third.
+_ROOT_FINGER = {"maj": 2, "aug": 2, "min": 3, "dim": 3}
+
 #: E on the low B string (fret 5): a root with room for the box below it (the
 #: minor/diminished third sits two frets down) and headroom for the climb.
 ROOT = 28
@@ -135,21 +139,23 @@ def test_the_shared_octave_pitch_is_one_note_the_upper_box_root() -> None:
 
 
 @pytest.mark.parametrize("quality", _TRIADS)
-def test_the_box_stamps_the_universal_left_ring_third_index_fingers(quality: str) -> None:
-    # Every box's first note (its root) is left ring (3); the whole journey uses
-    # only the box's four universal fingers.
+def test_the_box_stamps_the_quality_aware_left_hand_root_finger(quality: str) -> None:
+    # Every box's first note (its root) is left-handed, its finger set by R2 —
+    # ring (3) for a min/dim third, middle (2) for a maj/aug third — and the
+    # whole journey uses only the box's fingers (index/middle/ring).
     score, _hints = generate(quality)
     notes = notes_of(score)
     assert notes[0].hand is LEFT
-    assert notes[0].finger == 3
+    assert notes[0].finger == _ROOT_FINGER[quality]
     assert {note.finger for note in notes} <= {1, 2, 3}
 
 
-def test_the_journey_structure_is_identical_across_the_four_triads() -> None:
-    # Quality-agnostic: dim/aug are data, not code paths. Strings, hands and
-    # fingers are the same for every triad; only the frets (pitches) move.
+def test_the_journey_strings_and_hands_are_identical_across_the_four_triads() -> None:
+    # Quality-agnostic: dim/aug are data, not code paths. Strings and hands are
+    # the same for every triad; only the frets (pitches) and the R2 root finger
+    # move with the quality.
     structures = {
-        quality: [(note.string, note.hand, note.finger) for note in notes_of(generate(quality)[0])]
+        quality: [(note.string, note.hand) for note in notes_of(generate(quality)[0])]
         for quality in _TRIADS
     }
     reference = structures["maj"]

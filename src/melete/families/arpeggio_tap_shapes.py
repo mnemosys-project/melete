@@ -3,22 +3,33 @@
 B0 (`melete#188`, `docs/reports/triad-tap-shapes-capture.md`) captured the
 instructor's own tapped-triad playing and found the four triads share **one**
 universal two-hand box, not twelve per-quality shapes. Within one octave —
-root to octave-root — the hand-and-finger cascade is byte-for-byte identical
-across `maj`/`min`/`dim`/`aug`:
+root to octave-root — the strings, hands and the third/right-hand fingers are
+identical across `maj`/`min`/`dim`/`aug`:
 
-    root         string S     LEFT  ring   (3)
+    root         string S     LEFT  ring (3) or middle (2)   ← quality-aware (R2)
     third        string S+1   LEFT  index  (1)
     fifth        string S+1   RIGHT index  (1)
     octave-root  string S+2   RIGHT middle (2)
 
-The quality changes only *which frets* the third and fifth land on; the
-choreography does not. So this module encodes the strings, hands and fingers as
-the fixed `TAP_BOX`, and **derives** every fret from the chord interval and the
-instrument's fourths tuning rather than tabulating it — the two-hand analogue of
-`arpeggio_shapes._seed`. A chord tone `i` semitones above the root, placed
-`string_offset` strings up (each a perfect fourth, five semitones), sounds at
-`root_fret + i - 5 * string_offset`; deriving the fret from the profile's own
-tuning preserves pitch by construction (`tuning[string] + fret == pitch`).
+Two things move with the quality, and both are **derived** rather than
+tabulated. The third's and fifth's *frets* shift with their intervals; and the
+left-hand *root finger* mirrors the third's fret gap (corpus rule R2,
+`melete#200` / F2, `melete#202`). The third is always the index finger, and the
+root is played the same number of frets — hence fingers — above it, so a
+minor/diminished third (two frets back) takes the ring finger (3) and a
+major/augmented third (one fret back) the middle finger (2). Finger spacing
+mirrors fret spacing; it is an ergonomic derivation, not a table. Everything
+else is the fixed `TAP_BOX`.
+
+Frets derive as in the one-hand seed (`arpeggio_shapes._seed`): a chord tone `i`
+semitones above the root, placed `string_offset` strings up (each a perfect
+fourth, five semitones), sounds at `root_fret + i - 5 * string_offset`, and
+deriving the fret from the profile's own tuning preserves pitch by construction
+(`tuning[string] + fret == pitch`).
+
+**Scope (F2).** Only the first-octave box's quality-aware root finger is
+handled here. The octave- and direction-dependent finger shifts (R4/R5) are the
+future fingering *solve* and are out of scope.
 
 **PROVISIONAL — instructor-gated, Task E1.** The box is the instructor's taught
 technique captured in a working session; it ships so the family can be built,
@@ -58,34 +69,59 @@ _OCTAVE = 12
 #: quality with a different tone count (a seventh) is not a triad and raises.
 _TRIAD_TONES = 3
 
+#: The third's interval sits at index 1 of the box's interval tuple
+#: (root, third, fifth, octave-root). Its fret gap sets the left-hand root
+#: finger (R2).
+_THIRD_TONE = 1
+
+#: The left-hand third is always the index finger (R2); the root finger is the
+#: index finger plus the fret gap up to it.
+_LEFT_INDEX = 1
+
 
 @dataclass(frozen=True)
 class TapPosition:
     """One tapped note in the universal box: its role and fixed choreography.
 
-    `string_offset`, `hand` and `finger` are the fixed, quality-independent
-    data B0 captured. The fret is *not* stored — it is derived per quality and
-    per anchor by `box_places`, so a quality is placed by its intervals, never
-    by a tabulated fret.
+    `string_offset` and `hand` are the fixed, quality-independent data B0
+    captured. `finger` is fixed for the third and the two right-hand tones, but
+    `None` for the root, whose finger is *derived* per quality (R2) — like the
+    fret, which is never stored either. `box_places` derives both per quality
+    and anchor, so a quality is placed by its intervals, not by a table.
     """
 
     role: str
     string_offset: int
     hand: Hand
-    finger: int
+    finger: int | None
 
 
 #: The single universal two-hand box (spec §5), PROVISIONAL until Task E1.
-#: Strings climb 0, 1, 1, 2; the left hand takes the lower pair (root, third)
-#: with ring then index, the right hand the upper pair (fifth, octave-root) with
-#: index then middle. Identical across all four triads — the quality only moves
-#: the third's and fifth's derived frets.
+#: Strings climb 0, 1, 1, 2; the left hand takes the lower pair (root, third),
+#: the right hand the upper pair (fifth, octave-root) with index then middle.
+#: The third and right-hand fingers are fixed; the root finger is **derived**
+#: per quality (R2), so it is `None` here — `box_places` fills it from the
+#: third's fret gap (ring (3) for min/dim, middle (2) for maj/aug).
 TAP_BOX: tuple[TapPosition, ...] = (
-    TapPosition(role="root", string_offset=0, hand=Hand.LEFT, finger=3),
+    TapPosition(role="root", string_offset=0, hand=Hand.LEFT, finger=None),
     TapPosition(role="third", string_offset=1, hand=Hand.LEFT, finger=1),
     TapPosition(role="fifth", string_offset=1, hand=Hand.RIGHT, finger=1),
     TapPosition(role="octave-root", string_offset=2, hand=Hand.RIGHT, finger=2),
 )
+
+
+def _root_finger(third_interval: int) -> int:
+    """The left-hand root finger for a third `third_interval` semitones up (R2).
+
+    On the box's next-string-up (a fourth, `_FOURTH` semitones) the third sounds
+    `third_interval` semitones above the root but sits `_FOURTH - third_interval`
+    frets *below* it. The third is the index finger (`_LEFT_INDEX`); the root is
+    played that many frets — hence fingers — higher, so finger spacing mirrors
+    fret spacing. A minor/diminished third (3) yields the ring finger (3); a
+    major/augmented third (4) yields the middle finger (2). Ergonomic
+    derivation, not a table.
+    """
+    return _LEFT_INDEX + (_FOURTH - third_interval)
 
 
 def _triad_intervals(quality: str) -> tuple[int, ...]:
@@ -118,23 +154,28 @@ def box_places(
     """Apply the universal box to `quality`'s chord tones from `root_place`.
 
     Returns one `(string, fret, hand, finger)` per box position — root, third,
-    fifth, octave-root. The strings, hands and fingers are `TAP_BOX`'s fixed
-    choreography; each fret is **derived**, not tabulated: the tone sounds
+    fifth, octave-root. Strings and hands are `TAP_BOX`'s fixed choreography, as
+    are the third and right-hand fingers. Two things are **derived**, not
+    tabulated: each fret, and the left-hand root finger. The tone sounds
     `root_pitch + interval`, placed on the box's string, and the fret is whatever
-    the profile's tuning needs to sound it. On the target fourths tuning that is
+    the profile's tuning needs to sound it — on the target fourths tuning that is
     `root_fret + interval - 5 * string_offset`, and pitch is preserved by
-    construction on any tuning (`profile.tuning[string] + fret == pitch`).
+    construction on any tuning (`profile.tuning[string] + fret == pitch`). The
+    root finger mirrors the third's fret gap (R2): ring (3) for a min/dim third,
+    middle (2) for a maj/aug third.
 
     A non-triad `quality` raises (spec §9): the box is a one-octave triad shape.
     """
     intervals = _triad_intervals(quality)
     root_string, root_fret = root_place
     root_pitch = profile.tuning[root_string] + root_fret
+    root_finger = _root_finger(intervals[_THIRD_TONE])
 
     places: list[tuple[int, int, Hand, int]] = []
     for position, interval in zip(TAP_BOX, intervals, strict=True):
         string = root_string + position.string_offset
         pitch = root_pitch + interval
         fret = pitch - profile.tuning[string]
-        places.append((string, fret, position.hand, position.finger))
+        finger = position.finger if position.finger is not None else root_finger
+        places.append((string, fret, position.hand, finger))
     return places
