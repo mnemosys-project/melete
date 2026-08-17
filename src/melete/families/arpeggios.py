@@ -85,7 +85,14 @@ from fractions import Fraction
 from typing import TYPE_CHECKING, cast
 
 from melete import theory, vocabulary
-from melete.families._shared import Parameters, box, layout_hints, realizable, windowed
+from melete.families._shared import (
+    Parameters,
+    box,
+    layout_hints,
+    realizable,
+    there_and_back,
+    windowed,
+)
 from melete.families.arpeggio_shapes import shape_places
 from melete.families.arpeggio_tap_shapes import box_places
 from melete.families.journey import updown
@@ -437,12 +444,16 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     triad is walked as a two-hand *tapped* journey — the universal tap box tiled
     up the chord tones (`_tapped_ascending`) — and a seventh keeps the one-hand
     `arpeggio_shapes.shape_places` journey. Either way the ascending pass is
-    placed once, `pattern` slides its window along it, and `journey.updown`
-    orders the result up and back without replaying the apex.
+    placed once and `pattern` slides its window along it; `_order_and_hints` then
+    orders the result up and back. The two paths turn around differently — the
+    one-hand journey at a *cell* boundary (apex cell dropped, so the count stays
+    tileable), the tapped triad at the *note* level (a clean symmetric palindrome
+    that retraces the full ascent in reverse, spec §6, corpus R7).
 
     The hints are the fitter's window onto what the voice alone does not carry:
-    the natural cell is one turn of the `pattern` window, and the journey names
-    the apex it turns around at so the fitter's apex levers know where to act.
+    the natural cell (one turn of the `pattern` window for the one-hand journey,
+    the single tap for the tapped triad) and the apex the journey turns around at,
+    so the fitter's apex levers know where to act.
     """
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
@@ -453,7 +464,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     ascending_notes = _ascending_notes(profile, root, quality, inversion)
     window = _PATTERN_WINDOWS[pattern]
     ascending = windowed(window, len(ascending_notes))
-    order = updown(ascending, len(window))
+    order, hints = _order_and_hints(_is_triad(quality), window, ascending)
 
     voice: Voice = [ascending_notes[index] for index in order]
 
@@ -470,19 +481,39 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         key=theory.Key(root % _SEMITONES_PER_OCTAVE, theory.IMPLIED_PARENT[quality]),
         params=dict(params),
     )
-    return score, _hints(window, ascending)
+    return score, hints
 
 
-def _hints(window: tuple[int, ...], ascending: Sequence[int]) -> LayoutHints:
-    """The §4.2 layout hints for a realized journey.
+_TAPPED_LEVERS = (Lever.ADD_ONE, Lever.DROP_ONE, Lever.APEX_REPEAT, Lever.APEX_OMIT)
 
-    The cell is one turn of the `pattern` window. The journey is always
-    up-and-down (spec §5): `journey.updown` turns around at a cell boundary — the
-    apex cell of the ascending pass, played once — so the seam is that cell's
-    last note and the apex levers become legal.
+
+def _order_and_hints(
+    tapped: bool, window: tuple[int, ...], ascending: Sequence[int]
+) -> tuple[list[int], LayoutHints]:
+    """The playing order of the ascending indices, and the §4.2 hints, per path.
+
+    Both paths are the up-and-down journey (spec §5), but they turn around
+    differently:
+
+    * The **one-hand** journey (a seventh, or every plucked family) turns around
+      at a *cell* boundary: `journey.updown` plays the ascent, then the retrograde
+      of the ascent *minus its trailing apex cell*, so the note count stays a whole
+      number of `pattern` cells and the fitter always has whole beats (the #132
+      fix). Its cell is one turn of the window and its seam is that cell's last note.
+
+    * The **two-hand tapped** triad journey turns around at the *note* level, a
+      clean symmetric palindrome: the descent retraces the **full** ascending pitch
+      sequence in reverse (`there_and_back`), the apex tapped once at the turn, so
+      the whole journey reads the same forwards and backwards (spec §6, corpus R7,
+      `melete#200`). Nothing is dropped — the tapped line mirrors exactly, with no
+      cascade repeat. Its natural rhythmic cell is the single tap (`cell = 1`), so
+      the odd up-and-back count tiles the way the plain `straight` line already
+      does; the seam is the apex, the last ascending note.
     """
-    return layout_hints(
-        cell=len(window),
-        seam=len(ascending) - 1,
-        levers=(Lever.ADD_ONE, Lever.DROP_ONE, Lever.APEX_REPEAT, Lever.APEX_OMIT),
-    )
+    if tapped:
+        order = there_and_back(list(ascending))
+        hints = layout_hints(cell=1, seam=len(ascending) - 1, levers=_TAPPED_LEVERS)
+        return order, hints
+    order = updown(ascending, len(window))
+    hints = layout_hints(cell=len(window), seam=len(ascending) - 1, levers=_TAPPED_LEVERS)
+    return order, hints
