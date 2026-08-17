@@ -167,6 +167,52 @@ def test_a_triad_climbs_up_and_back_down() -> None:
     assert pitches[hints.seam] == max(pitches)  # turns around at the apex
 
 
+_PATTERNS = ("straight", "numeric_1353", "broken", "sweep_ordered")
+
+
+@pytest.mark.parametrize("quality", _TRIADS)
+@pytest.mark.parametrize("pattern", _PATTERNS)
+def test_the_tapped_descent_mirrors_the_ascent_symmetrically(quality: str, pattern: str) -> None:
+    # R7 (corpus, `melete#200`) / spec §6: the tapped triad journey is a
+    # *symmetric* up-and-back. The descent retraces the **full** ascending pitch
+    # sequence in reverse — the apex played once at the turn — so the whole
+    # journey reads the same forwards and backwards. Unlike the one-hand journey's
+    # cell-aligned turnaround (`journey.updown`, which drops the whole apex cell to
+    # keep a tileable count), the tapped line drops nothing: it mirrors exactly.
+    # This is the fix for the asymmetric descent (7 up / <7 down) the seam-merge
+    # turnaround produced under a windowed pattern.
+    score, hints = generate(quality, pattern=pattern)
+    pitches = [note.pitch for note in notes_of(score)]
+    assert hints.seam is not None
+
+    ascending = pitches[: hints.seam]  # everything before the apex
+    descending = pitches[hints.seam + 1 :]  # everything after the apex
+
+    # The descending pitch sequence mirrors the ascending: same length, reversed.
+    assert descending == ascending[::-1]
+    assert len(descending) == len(ascending)
+
+    # And the end-to-end pitch content is symmetric: a palindrome about the apex.
+    assert pitches == pitches[::-1]
+
+
+@pytest.mark.parametrize("quality", _TRIADS)
+@pytest.mark.parametrize("pattern", _PATTERNS)
+def test_the_tapped_journey_stays_two_handed_and_all_tapped_under_every_pattern(
+    quality: str, pattern: str
+) -> None:
+    # The symmetric descent preserves everything B3 established, for every pattern:
+    # both hands are used, every note is TAPPED (the pure-tapping default — no
+    # legato is introduced at the turn), and the pitch content is the triad's own
+    # chord tones tiled across the register.
+    score, _hints = generate(quality, pattern=pattern)
+    notes = notes_of(score)
+    assert all(note.attack is TAPPED for note in notes)
+    assert {note.hand for note in notes} == {LEFT, RIGHT}
+    top = max(note.pitch for note in notes)
+    assert {note.pitch for note in notes} == _tiled_chord_tones(quality, top)
+
+
 # --------------------------------------------------------------------------
 # The seventh path is untouched (one-hand)
 # --------------------------------------------------------------------------
