@@ -184,6 +184,44 @@ def test_the_third_finger_is_octave_dependent_index_low_ring_above(quality: str)
 
 
 @pytest.mark.parametrize("quality", _TRIADS)
+def test_the_descending_third_is_re_fingered_by_direction(quality: str) -> None:
+    # R5 (corpus, `tapped-corrected.gp`): the instructor re-fingers the third on the
+    # way down. Ascending, the higher-box thirds stretch up to ring (R4); descending,
+    # the anchor and approach flip and every third is retaken with the index — the
+    # low third was already index, the stretched-up ones fall back to it. Every full
+    # box's third is index descending in the reference (maj/aug and min/dim alike);
+    # the reference's one ring-descending third is a partial third-only top box this
+    # journey never tiles (its apex is always an octave-root). Only the third moves;
+    # hands and strings are unchanged (proven elsewhere).
+    score, hints = generate(quality)
+    assert hints.seam is not None
+    played = notes_of(score)
+    descending = played[hints.seam + 1 :]  # the palindrome's descending half
+
+    third_pitch = theory.chord_pitches(ROOT, quality)[1]
+    thirds = [note for note in descending if (note.pitch - third_pitch) % _OCTAVE == 0]
+    assert len(thirds) >= 2  # a genuine multi-octave descent, so R5 has teeth
+    for note in thirds:
+        assert note.hand is LEFT  # the third is always left-hand
+        assert note.finger == 1  # every third re-fingers to index descending
+
+
+def test_the_ascending_and_descending_thirds_genuinely_differ() -> None:
+    # The point of R5, made concrete on E major: the middle-box third G#2 is ring (3)
+    # ascending but index (1) descending — the same pitch, re-fingered by direction.
+    score, hints = generate("maj")
+    assert hints.seam is not None
+    played = notes_of(score)
+    ascending, descending = played[: hints.seam + 1], played[hints.seam + 1 :]
+
+    g_sharp_2 = theory.chord_pitches(ROOT, "maj")[1] + _OCTAVE  # the box-1 (middle) third
+    up = next(note for note in ascending if note.pitch == g_sharp_2)
+    down = next(note for note in descending if note.pitch == g_sharp_2)
+    assert up.finger == 3  # ring on the way up (R4)
+    assert down.finger == 1  # index on the way down (R5)
+
+
+@pytest.mark.parametrize("quality", _TRIADS)
 def test_root_fifth_and_octave_root_fingering_is_unchanged_by_the_octave_third(
     quality: str,
 ) -> None:

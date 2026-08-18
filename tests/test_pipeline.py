@@ -226,27 +226,29 @@ def test_the_tapped_triad_realizes_a_symmetric_palindrome_ending_on_the_root(
 
 @pytest.mark.parametrize("quality", _TRIADS)
 def test_the_tapped_triad_third_finger_is_octave_dependent_post_fitter(quality: str) -> None:
-    """Post-fitter proof of R4 (corpus, epic #67): the third's finger tiles by octave.
+    """Post-fitter proof of R4 (corpus, epic #67): the ascending third tiles by octave.
 
     Through `pipeline.realize` — the layer that actually engraves — a multi-octave
-    tapped triad's third is left **index (1)** in the first (root-anchoring) box and
-    left **ring (3)** in every higher box, where the octave-root is the shared
-    right-hand seam so the left hand only reaches up to the third (corpus example
-    `tapped-corrected.gp`: the low third is L1, the higher thirds L3). It is the
-    first place a tapped fingering becomes tiling-context-dependent rather than a
-    fixed box. Root, fifth and octave-root fingering are unchanged.
+    tapped triad's third is, *ascending*, left **index (1)** in the first
+    (root-anchoring) box and left **ring (3)** in every higher box, where the
+    octave-root is the shared right-hand seam so the left hand only reaches up to the
+    third (corpus example `tapped-corrected.gp`: the low third is L1, the higher
+    thirds L3). It is the first place a tapped fingering becomes
+    tiling-context-dependent rather than a fixed box. Root, fifth and octave-root
+    fingering are unchanged. The *descending* third re-fingers (R5) and is asserted
+    separately; here we read only the palindrome's ascending half.
     """
     root = TAPPED_TRIAD["root"]
     assert isinstance(root, int)
     spec = {**TAPPED_TRIAD, "quality": quality}
     score, _plan = pipeline.realize(BASS6, "arpeggios", spec)
     played = list(notes(score.voice))
+    ascending = played[: len(played) // 2]  # the palindrome's ascending half
 
     # The third's pitch class is distinct from the root's and the fifth's in every
-    # triad, so filtering by it isolates exactly the octave thirds (each realized
-    # twice by the symmetric palindrome — both taps carry the same octave finger).
+    # triad, so filtering by it isolates exactly the octave thirds.
     third_pitch = theory.chord_pitches(root, quality)[1]
-    thirds = [note for note in played if (note.pitch - third_pitch) % _OCTAVE == 0]
+    thirds = [note for note in ascending if (note.pitch - third_pitch) % _OCTAVE == 0]
     third_pitches = sorted({note.pitch for note in thirds})
     assert len(third_pitches) >= 2  # a genuine multi-octave journey, so R4 has teeth
 
@@ -255,6 +257,38 @@ def test_the_tapped_triad_third_finger_is_octave_dependent_post_fitter(quality: 
         assert note.hand is Hand.LEFT  # the third is always left-hand
         # First octave -> left index (1); every higher octave -> left ring (3).
         assert note.finger == (1 if note.pitch == lowest else 3)
+
+
+@pytest.mark.parametrize("quality", _TRIADS)
+def test_the_tapped_triad_descending_third_re_fingers_post_fitter(quality: str) -> None:
+    """Post-fitter proof of R5 (corpus, epic #67, `tapped-corrected.gp`): the descent re-fingers.
+
+    Going up, the third is octave-dependent (R4: index low, ring above). Coming down,
+    the instructor re-fingers — the hand's anchor and approach flip with direction —
+    so through `pipeline.realize` *every* third is retaken with the left **index (1)**
+    descending, its ascending stretch up to the ring being a one-way reach. The
+    lowest third was already index; every higher third that was ring ascending falls
+    to index. Read from the descend bars of `tapped-corrected.gp`: every full box's
+    third (the low G#1/G1 and the middle G#2/G2, maj/aug and min/dim alike) is index
+    descending. The reference's one ring-descending third is the apex of a partial,
+    third-only top box — which this journey never tiles (its apex is always an
+    octave-root, R7/extent), so no third is ever ring on the way down.
+    """
+    root = TAPPED_TRIAD["root"]
+    assert isinstance(root, int)
+    spec = {**TAPPED_TRIAD, "quality": quality}
+    score, _plan = pipeline.realize(BASS6, "arpeggios", spec)
+    played = list(notes(score.voice))
+    descending = played[len(played) // 2 :]  # the palindrome's descending half
+
+    third_pitch = theory.chord_pitches(root, quality)[1]
+    thirds = [note for note in descending if (note.pitch - third_pitch) % _OCTAVE == 0]
+    third_pitches = sorted({note.pitch for note in thirds})
+    assert len(third_pitches) >= 2  # a genuine multi-octave descent, so R5 has teeth
+
+    for note in thirds:
+        assert note.hand is Hand.LEFT  # the third is always left-hand
+        assert note.finger == 1  # every third re-fingers to index descending
 
 
 def test_a_seventh_stays_one_handed_and_plucked_through_the_pipeline() -> None:

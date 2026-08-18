@@ -196,6 +196,12 @@ _THIRD_PLACE = 1
 #: box keeps the box's own index (1) finger untouched.
 _LEFT_RING_FINGER = 3
 
+#: The box's own left-hand third finger, index (1). Ascending it holds only in the
+#: first box (R4 stretches every higher third up to ring); descending it holds in
+#: *every* box (R5) — the instructor re-fingers each higher third back down to the
+#: index on the way down, its stretched-up ring being an ascending-only reach.
+_LEFT_INDEX_FINGER = 1
+
 #: The string offset of the two-hand box's top string, per box shape — the tile
 #: loop needs it to know the box fits before laying it (its top string must
 #: exist). The triad box spans three strings (offsets 0, 1, 1, 2) so its top sits
@@ -236,7 +242,7 @@ def derive(
       without a `hands`↔`quality` coupling the independent sampler cannot express.
     * `inversion` — pinned to root for anything that taps, because the captured tap
       boxes are root-position shapes (spec §2) and a non-root tap raises
-      (`_tapped_ascending` / `_seventh_tapped_ascending`). Fixing it here means the
+      (`_tapped_journey` / `_seventh_tapped_ascending`). Fixing it here means the
       selector never *samples* `first`/`second` for a tapped quality and then
       discards it — the value is derived, so a tapped draw does not consume the
       `inversion` pool at all. A one-hand (untapped) seventh is left to be sampled
@@ -408,53 +414,102 @@ def _root_position_only(inversion: str) -> ValueError:
     return ValueError(msg)
 
 
-def _octave_third_finger(
-    shape: list[tuple[int, int, Hand, int]], *, first_box: bool
+def _third_refingered(
+    shape: list[tuple[int, int, Hand, int]], finger: int
 ) -> list[tuple[int, int, Hand, int]]:
-    """Re-finger a triad box's third by its octave position (corpus R4).
+    """`shape` with its third's left-hand finger replaced, everything else kept.
 
-    The static `box_places` third is left **index (1)**, which is right for the
-    first (root-anchoring) box: there the left hand anchors the octave's root and
-    reaches the third with the index finger. In every higher box the octave-root
-    is the shared right-hand seam, so the left hand is *not* anchored on that
-    octave's root and reaches up to the third with the **ring (3)** finger — the
-    same stretch B0 already applies to the retapped octave-root. This is the first
-    fingering that tiles with position rather than being a fixed box (R5/R8 are the
-    later solve steps), so it is derived here where the journey knows each box's
-    index, not baked into the one-value-fits-all `TAP_BOX`.
-
-    Only the third moves: root, fifth and octave-root keep the box's own fingers.
+    The third sits at `_THIRD_PLACE`; root, fifth and octave-root keep the box's own
+    fingers. It is the one place per box a tapped fingering tiles with context —
+    octave position ascending (R4), direction descending (R5) — so both directions
+    route their per-box third finger through here rather than baking it into the
+    static `TAP_BOX`.
     """
-    if first_box:
-        return shape
     string, fret, hand, _finger = shape[_THIRD_PLACE]
     return [
         *shape[:_THIRD_PLACE],
-        (string, fret, hand, _LEFT_RING_FINGER),
+        (string, fret, hand, finger),
         *shape[_THIRD_PLACE + 1 :],
     ]
 
 
-def _tapped_ascending(
+def _ascending_third_finger(box_index: int, _num_boxes: int) -> int:
+    """The *ascending* third finger for box `box_index` (corpus R4).
+
+    Left **index (1)** in the first (root-anchoring) box — there the left hand
+    anchors the octave's root and reaches the third with the index — and left
+    **ring (3)** in every higher box, where the octave-root is the shared right-hand
+    seam so the left hand stretches up to the third. Unchanged from R4.
+    """
+    return _LEFT_INDEX_FINGER if box_index == 0 else _LEFT_RING_FINGER
+
+
+def _descending_third_finger(_box_index: int, _num_boxes: int) -> int:
+    """The *descending* third finger for any box (corpus R5).
+
+    Coming down, the hand's anchor and approach flip with direction, so a higher-box
+    third that stretched up to **ring (3)** ascending is retaken with **index (1)**
+    descending; the first box's third is index in both directions (it never stretched
+    up). So *every* third is the index finger descending, whatever its octave.
+
+    *Evidence — the four triads' descend bars of `tapped-corrected.gp`.* Every third
+    of a **full** box is index descending in the reference (maj/aug and min/dim
+    alike): the low G#1/G1 and the middle G#2/G2 all fall to index. The reference's
+    one ring-descending third is the **apex of a partial, third-only top box** (a
+    major-third triad's G#3 on the top string, no octave-root above it) — and that
+    box never arises here: `_tile_boxes` only ever appends **full** boxes (a box
+    whose top string exists and whose octave-root fits), so the journey's apex is
+    always an octave-root, never a bare third. With no third-only apex box to keep at
+    ring, the descending third is uniformly the index finger. (Growing the journey to
+    the reference's partial top box is an extent question, R7 — out of scope here; its
+    apex fingering derives then.)
+    """
+    return _LEFT_INDEX_FINGER
+
+
+def _tapped_notes(
+    profile: InstrumentProfile,
+    boxes: list[list[tuple[int, int, Hand, int]]],
+    third_finger: Callable[[int, int], int],
+) -> list[Note]:
+    """One pass of the tapped triad journey, its thirds fingered by `third_finger`.
+
+    The tiled boxes overlap by one pitch: box N's octave-root and box N+1's root are
+    the *same* pitch (an octave up, `+2` strings, `+2` frets), realized **once** as
+    the upper box's ring-finger root — faithful to B0's tiling rule. So every box but
+    the last contributes only its root, third and fifth, and the final box adds its
+    octave-root to cap the pass; the emitted pitch sequence is the triad's
+    `theory.chord_pitches` tiled, each pitch once (spec §10).
+
+    The boxes are shared by both directions and only the third's finger differs,
+    supplied per box by `third_finger(box_index, num_boxes)` — R4 ascending,
+    R5 descending — so the two passes agree on every string, fret, hand and pitch.
+    """
+    notes: list[Note] = []
+    for index, shape in enumerate(boxes):
+        fingered = _third_refingered(shape, third_finger(index, len(boxes)))
+        used = fingered if index == len(boxes) - 1 else fingered[:_TRIAD_TONES]
+        notes.extend(_tap_note(profile, s, f, h, finger) for s, f, h, finger in used)
+    return notes
+
+
+def _tapped_journey(
     profile: InstrumentProfile,
     root: int,
     quality: str,
     inversion: str,
-) -> list[Note]:
-    """The ascending half of the two-hand tapped *triad* journey, low root to top (spec §6).
+) -> tuple[list[Note], list[Note]]:
+    """The two-hand tapped *triad* journey as its ascending and descending passes (spec §6).
 
-    The tiled boxes overlap by one pitch: box N's octave-root and box N+1's root
-    are the *same* pitch (an octave up, `+2` strings, `+2` frets). That shared
-    pitch is realized **once**, as the upper box's root — left hand, ring finger,
-    faithful to B0's tiling rule ("the octave-root becomes the next box's root,
-    retapped by the left ring finger"). So every box but the last contributes
-    only its root, third and fifth, and the final box adds its octave-root to cap
-    the ascent. The emitted ascending pitch sequence is then exactly the triad's
-    `theory.chord_pitches` tiled across the register — each pitch once (spec §10).
-
-    The third's left-hand finger is the one thing that tiles with octave position
-    (corpus R4, `_octave_third_finger`): index (1) in the first box, ring (3) in
-    every higher box. Root, fifth and octave-root fingering are unchanged.
+    Both passes tile the same overlapping boxes (`_tile_boxes`), so they share every
+    string, fret, hand and pitch — the triad's `theory.chord_pitches` tiled across
+    the register. They differ only in the left-hand third's finger, which is
+    **direction-dependent** (corpus R5): ascending follows R4
+    (`_ascending_third_finger`: index low, ring above), and descending retakes every
+    third with the index (`_descending_third_finger`). The caller plays the ascending
+    pass up and the descending pass back, so a higher-box third stretched up to the
+    ring on the way in is re-fingered to the index on the way out — exactly as the
+    instructor's ascend and descend bars are fingered.
 
     The captured box is a root-position shape (spec §2); a non-root inversion is
     deferred and raises rather than silently tapping the root-position shape.
@@ -466,14 +521,9 @@ def _tapped_ascending(
     if not boxes:
         raise _no_on_neck_box(profile, root, quality)
 
-    notes: list[Note] = []
-    for index, shape in enumerate(boxes):
-        fingered = _octave_third_finger(shape, first_box=index == 0)
-        # Every box but the last drops its octave-root: it is box N+1's root,
-        # emitted once, there. The final box keeps it to cap the ascent.
-        used = fingered if index == len(boxes) - 1 else fingered[:_TRIAD_TONES]
-        notes.extend(_tap_note(profile, s, f, h, finger) for s, f, h, finger in used)
-    return notes
+    ascending = _tapped_notes(profile, boxes, _ascending_third_finger)
+    descending = _tapped_notes(profile, boxes, _descending_third_finger)
+    return ascending, descending
 
 
 def _seventh_tapped_ascending(
@@ -517,27 +567,25 @@ def _ascending_notes(
     inversion: str,
     hands: int,
 ) -> list[Note]:
-    """The journey's ascending pass as notes, routed by `hands` then quality (spec §6).
+    """The ascending pass of the paths whose two directions are identical (spec §6).
 
-    Routing keys on the hand count first, then the quality class:
+    Two of the three journey paths play the same notes up and down, so `generate`
+    reverses this one ascending pass for their descent:
 
-    * `hands == 2` + a **triad** → the two-hand tapped triad journey
-      (`TAP_BOX` tiled with an octave overlap);
     * `hands == 2` + a **seventh** → the two-hand tapped seventh journey
       (`SEVENTH_TAP_BOX` tiled on the next string-pair up, no overlap — G2);
     * `hands == 1` → the one-hand `shape_places` journey, for any quality.
 
-    In practice `hands` is *derived* (`derive`): a triad draws two hands, a seventh
-    one — so the two-hand seventh is reachable only when a caller supplies
-    `hands == 2` explicitly (the selection wiring is the follow-up G3). Whichever
-    path runs, all three return the ascending pass as one note per tone, which
-    `generate` then windows by `pattern` and orders up-and-down — the same
-    machinery round for every path, so `pattern`, the turnaround and the layout
-    hints are computed once.
+    The third path — a two-hand tapped **triad** — re-fingers its third by direction
+    (corpus R5), so its two passes differ; `_journey_notes` routes it to
+    `_tapped_journey` (which returns both) *before* reaching here, and this is called
+    only for the two same-both-ways paths. In practice `hands` is *derived*
+    (`derive`): a triad draws two hands, a seventh one — so the two-hand seventh is
+    reachable only when a caller supplies `hands == 2` explicitly (the selection
+    wiring is the follow-up G3). Either path returns the ascending pass as one note
+    per tone, which `generate` then windows by `pattern` and orders up-and-down.
     """
-    if hands == _TWO_HANDS:
-        if _is_triad(quality):
-            return _tapped_ascending(profile, root, quality, inversion)
+    if hands == _TWO_HANDS:  # a two-hand triad never reaches here (see `_journey_notes`)
         return _seventh_tapped_ascending(profile, root, quality, inversion)
     tones, places = _journey(profile, root, quality, inversion)
     return [
@@ -551,6 +599,29 @@ def _ascending_notes(
         )
         for index in range(len(tones))
     ]
+
+
+def _journey_notes(
+    profile: InstrumentProfile,
+    root: int,
+    quality: str,
+    inversion: str,
+    hands: int,
+) -> tuple[list[Note], list[Note]]:
+    """The journey's ascending and descending passes as notes (spec §5, §6).
+
+    Only the two-hand tapped *triad* re-fingers between directions (corpus R5,
+    `_tapped_journey`): its two passes share every pitch and place but the left-hand
+    third takes a different finger coming down. Every other path — the two-hand
+    tapped seventh and the one-hand plucked journey — plays the same notes both ways,
+    so its descending pass *is* its ascending one (the ordering machinery reverses
+    it) and both entries are the same list. `generate` then windows and orders these,
+    reading the ascending list on the way up and the descending list on the way back.
+    """
+    if hands == _TWO_HANDS and _is_triad(quality):
+        return _tapped_journey(profile, root, quality, inversion)
+    ascending = _ascending_notes(profile, root, quality, inversion, hands)
+    return ascending, ascending
 
 
 def _hands(params: Mapping[str, object], quality: str) -> int:
@@ -602,17 +673,20 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
 
     The voice is the up-and-down journey (spec §5), routed by `hands` then quality
     class: with two hands a **triad** is walked as a two-hand *tapped* journey (the
-    universal `TAP_BOX` tiled up the chord tones, `_tapped_ascending`) and a
+    universal `TAP_BOX` tiled up the chord tones, `_tapped_journey`) and a
     **seventh** as its own two-hand tapped journey (the `SEVENTH_TAP_BOX` grid
     tiled on the next string-pair up, `_seventh_tapped_ascending`, G2); with one
     hand either quality keeps the one-hand `arpeggio_shapes.shape_places` journey.
     Whichever runs, the ascending pass is placed once and `pattern` slides its
-    window along it; `_order_and_hints` then orders the result up and back. The
-    two kinds of path turn around differently — the one-hand journey at a *cell*
-    boundary (apex cell dropped, so the count stays tileable), the two-hand tapped
-    journey at the *note* level (an apex-doubled symmetric palindrome that retraces
-    the full ascent in reverse and re-taps the apex at the turn, so its even count
-    tiles with no lever and the closing root survives, spec §6, corpus R7/R12).
+    window along it; `_order_and_hints` then orders the result up and back and
+    `_directed_voice` reads the ascending notes up and the descending notes back.
+    Only the tapped triad's two passes differ (its third re-fingers by direction,
+    corpus R5); for every other path they are the same notes. The two kinds of path
+    turn around differently — the one-hand journey at a *cell* boundary (apex cell
+    dropped, so the count stays tileable), the two-hand tapped journey at the *note*
+    level (an apex-doubled symmetric palindrome that retraces the full ascent in
+    reverse and re-taps the apex at the turn, so its even count tiles with no lever
+    and the closing root survives, spec §6, corpus R7/R12).
 
     The hints are the fitter's window onto what the voice alone does not carry:
     the natural cell (one turn of the `pattern` window for the one-hand journey,
@@ -628,12 +702,12 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     pattern = realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
 
     hands = _hands(params, quality)
-    ascending_notes = _ascending_notes(profile, root, quality, inversion, hands)
+    ascending_notes, descending_notes = _journey_notes(profile, root, quality, inversion, hands)
     window = _PATTERN_WINDOWS[pattern]
     ascending = windowed(window, len(ascending_notes))
     order, hints = _order_and_hints(hands == _TWO_HANDS, window, ascending)
 
-    voice: Voice = [ascending_notes[index] for index in order]
+    voice: Voice = _directed_voice(ascending_notes, descending_notes, order, len(ascending))
 
     score = Score(
         title=_title(root, quality, inversion, pattern),
@@ -652,6 +726,28 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
 
 
 _ONE_HAND_LEVERS = (Lever.ADD_ONE, Lever.DROP_ONE, Lever.APEX_REPEAT, Lever.APEX_OMIT)
+
+
+def _directed_voice(
+    ascending_notes: list[Note],
+    descending_notes: list[Note],
+    order: Sequence[int],
+    ascent: int,
+) -> Voice:
+    """The voice: the ascending notes on the way up, the descending notes on the way back.
+
+    `order` indexes the per-tone note list in playing order; its first `ascent`
+    entries are the ascent and the rest the descent — both `apex_doubled` (the tapped
+    palindrome) and `directed_by_cell` (the one-hand up-and-down) put the turnaround
+    exactly there. The ascent reads `ascending_notes`, the descent `descending_notes`,
+    the two differing only where a direction-dependent fingering does (the tapped
+    triad's third, corpus R5). For every other path the two lists are the same object,
+    so this reduces to indexing one list and the split is invisible.
+    """
+    return [
+        (ascending_notes if position < ascent else descending_notes)[index]
+        for position, index in enumerate(order)
+    ]
 
 
 def _order_and_hints(
