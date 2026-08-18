@@ -331,6 +331,29 @@ def there_and_back[T](items: Sequence[T]) -> list[T]:
     return [*items, *items[-2::-1]]
 
 
+def apex_doubled[T](items: Sequence[T]) -> list[T]:
+    """`items` forward and then back, the turnaround (apex) re-articulated *twice*.
+
+    The mirror image of `there_and_back`, differing by the single element at the
+    fold: `there_and_back` plays the apex once (a `2L - 1`, odd count),
+    `apex_doubled` re-taps it (a `2L`, even count). The result is a full
+    palindrome — it reads the same forwards and backwards and returns to its
+    first element.
+
+    The **even** count is load-bearing (corpus R12, `melete#205`). An odd
+    up-and-back count is a prime often enough that the layout fitter reaches for
+    `DROP_ONE` to tile it and strips the *closing* element — for the two-hand
+    tapped triad journey that is the closing root, and the symmetric descent the
+    instructor actually plays never reaches the engraved sheet. Doubling the apex
+    makes the count even, which always tiles into whole bars (2/4 x L at worst)
+    with no note-count lever, so the palindrome survives intact. Musically this is
+    faithful, not a workaround: at a turnaround the apex *is* re-tapped (played
+    twice), and a same-fret re-tap is a re-articulation, not a slur — `derive_legato`
+    keeps the doubled apex `TAPPED` (R12).
+    """
+    return [*items, *reversed(items)]
+
+
 def apply_direction[T](items: Sequence[T], direction: str) -> list[T]:
     """`items` ordered by §7's `direction` axis.
 
@@ -386,39 +409,51 @@ def directed_by_cell[T](order: Sequence[T], direction: str, cell: int) -> list[T
 
 
 def derive_legato(voice: Sequence[Note | Tuplet]) -> Voice:
-    """Re-derive articulation across each hand's same-string run (spec §3, §6).
+    """Re-derive articulation across each hand's same-string run (spec §3, §6; corpus R12).
 
-    Within a run of consecutive notes on the *same string and same hand* the
-    first note is `TAPPED` and every follower is `SLURRED` — a hammer-on or
-    pull-off, sounded without a fresh attack. A string change or a hand change
-    ends the run and forces a fresh `TAPPED`. The articulation is **derived
-    from scratch** on the note positions, so a note's incoming `attack` does not
-    matter: a run that arrives `SLURRED`-first (because a fitter lever dropped
-    its leading tap) still comes out `TAPPED`-first, and no slur is ever
-    stranded without a tapped attack ahead of it on the same string and hand.
+    Within a run of consecutive notes on the *same string and same hand*, a
+    follower is `SLURRED` — a hammer-on or pull-off, sounded without a fresh
+    attack — **only when its fret changes** from the note before it; otherwise it
+    is `TAPPED`. This is corpus R12 (`melete#205`): a slur *requires* a fret
+    change, because you cannot hammer or pull to the same fret, so a same-fret
+    repeat is a re-articulation (a re-tap) and stays `TAPPED`. A string change or
+    a hand change likewise ends the run and forces a fresh `TAPPED`.
 
-    Only tapped notes are touched. A `PLUCKED` note — every one-hand family
-    emits these — is left exactly as it is and breaks any run, so this pass is a
-    no-op for the untapped pipeline and, because the all-tapped triad boxes put
-    nothing on the same string and hand consecutively, a no-op for the triad
-    default too (spec §6). It runs **after** the fitter, on the final tiled
-    voice, which is the one place the tapped journey and the fitter interact.
+    The articulation is **derived from scratch** on the note positions, so a
+    note's incoming `attack` does not matter: a run that arrives `SLURRED`-first
+    (because a fitter lever dropped its leading tap) still comes out
+    `TAPPED`-first, and no slur is ever stranded without a tapped attack ahead of
+    it on the same string and hand.
+
+    Only tapped notes are touched. A `PLUCKED` note — every one-hand family emits
+    these — is left exactly as it is and breaks any run, so this pass is a no-op
+    for the untapped pipeline. For the all-tapped triad default it is also a
+    no-op: the boxes put nothing on the same string and hand consecutively except
+    the *doubled apex* at the turnaround, and that is a same-fret re-tap R12 keeps
+    `TAPPED`. It runs **after** the fitter, on the final tiled voice, which is the
+    one place the tapped journey and the fitter interact.
 
     The voice at this stage is a flat run of `Note`s (the barring pass has not
     grouped tuplets yet); a `Tuplet`, were one present, passes through untouched
     and ends the current run, since a run does not reach across it.
     """
     result: Voice = []
-    run: tuple[int, Hand] | None = None  # the (string, hand) of the open run
+    prev: tuple[int, Hand, int] | None = None  # (string, hand, fret) of the last tapped note
     for item in voice:
         if isinstance(item, Note) and item.attack in (Attack.TAPPED, Attack.SLURRED):
-            here = (item.string, item.hand)
-            attack = Attack.SLURRED if run == here else Attack.TAPPED
+            # R12: a slur needs a genuine hammer-on/pull-off — a fret change on the
+            # same string and hand. A same-fret repeat there is a re-tap, not a slur.
+            slurred = (
+                prev is not None
+                and (prev[0], prev[1]) == (item.string, item.hand)
+                and prev[2] != item.fret
+            )
+            attack = Attack.SLURRED if slurred else Attack.TAPPED
             result.append(replace(item, attack=attack))
-            run = here
+            prev = (item.string, item.hand, item.fret)
         else:
             result.append(item)
-            run = None  # a plucked note or a tuplet ends the run
+            prev = None  # a plucked note or a tuplet ends the run
     return result
 
 

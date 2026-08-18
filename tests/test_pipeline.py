@@ -15,7 +15,9 @@ from __future__ import annotations
 from fractions import Fraction
 from random import Random
 
-from melete import pipeline
+import pytest
+
+from melete import pipeline, theory
 from melete.config import load_string
 from melete.families import REGISTRY
 from melete.instrument import PROFILES
@@ -23,6 +25,20 @@ from melete.score import Attack, Hand, bar, notes, sounding_duration
 from melete.selection import select
 
 BASS6 = PROFILES["bass6"]
+
+_TRIADS = ("maj", "min", "dim", "aug")
+_TRIAD_PATTERNS = ("straight", "numeric_1353", "broken", "sweep_ordered")
+_OCTAVE = 12
+
+
+def _tiled_chord_tones(root: int, quality: str, top: int) -> set[int]:
+    """Every chord-tone pitch from `root` up to `top`, tiled by the octave."""
+    tones: set[int] = set()
+    for octave in range((top - root) // _OCTAVE + 1):
+        for pitch in theory.chord_pitches(root, quality):
+            tones.add(pitch + _OCTAVE * octave)
+    return {pitch for pitch in tones if pitch <= top}
+
 
 #: All four families declared with §10-shaped pools, two exercises each, so one
 #: draw exercises every family the way `generate` does. The rhythm pool still
@@ -158,19 +174,54 @@ def test_a_tapped_triad_realizes_two_handed_and_the_legato_is_a_noop() -> None:
     assert _no_slur_is_stranded(score.voice)
 
 
-def test_the_post_fitter_legato_strands_no_slur_when_it_fires() -> None:
-    """Spec §3: run after the fitter, legato leaves a correct first-TAPPED-per-run.
+@pytest.mark.parametrize("quality", _TRIADS)
+@pytest.mark.parametrize("pattern", _TRIAD_PATTERNS)
+def test_the_tapped_triad_realizes_a_symmetric_palindrome_ending_on_the_root(
+    quality: str, pattern: str
+) -> None:
+    """The post-fitter proof (spec §6, corpus R7/R12, `melete#205`), the layer F1 missed.
 
-    `numeric_1353` repeats a chord tone on the same string and hand, so the
-    legato pass does fire here (unlike the straight default). It runs on the
-    already-tiled voice, so every slur it derives still has its tapped attack
-    ahead of it — no slur is stranded by a note the fitter repeated or dropped.
+    F1 (`melete#201`) made the *family* symmetric, but the layout fitter hit the
+    odd apex-once count, applied `DROP_ONE`, and stripped the closing root — so the
+    engraved journey was still asymmetric. F3 re-taps the apex, giving an even
+    count that tiles with **no** note-count lever. This asserts the property where
+    it actually has to hold — on the fitter's output through `pipeline.realize`,
+    not at the family layer — for every triad and every pattern:
+
+    * no lever touched the voice (`plan.levers_applied == ()`);
+    * the pitch sequence is a symmetric palindrome that begins and ends on the
+      low root — the closing root survives;
+    * the apex is re-tapped (doubled) at the fold;
+    * every note is `TAPPED` (R12 keeps the same-fret re-tap tapped) by both hands;
+    * the pitch content is exactly the triad's chord tones tiled to the apex.
     """
-    score, _plan = pipeline.realize(BASS6, "arpeggios", {**TAPPED_TRIAD, "pattern": "numeric_1353"})
+    root = TAPPED_TRIAD["root"]
+    assert isinstance(root, int)
+    spec = {**TAPPED_TRIAD, "quality": quality, "pattern": pattern}
+    score, plan = pipeline.realize(BASS6, "arpeggios", spec)
     played = list(notes(score.voice))
+    pitches = [note.pitch for note in played]
 
-    assert any(note.attack is Attack.SLURRED for note in played)  # the pass fired
+    # No note-count lever: the even apex-doubled count tiled into whole bars clean.
+    assert plan.levers_applied == ()
+
+    # A symmetric palindrome, beginning and ending on the low root.
+    assert len(pitches) % 2 == 0
+    assert pitches == pitches[::-1]
+    assert pitches[0] == pitches[-1] == root
+
+    # The apex is doubled at the fold; both halves are exact reverses.
+    half = len(pitches) // 2
+    assert pitches[half - 1] == pitches[half]
+    assert pitches[:half] == pitches[half:][::-1]
+
+    # Every note tapped, both hands used, legato a no-op (no slur stranded).
+    assert all(note.attack is Attack.TAPPED for note in played)
+    assert {note.hand for note in played} == {Hand.LEFT, Hand.RIGHT}
     assert _no_slur_is_stranded(score.voice)
+
+    # Pitch content preserved: exactly the triad's chord tones tiled to the apex.
+    assert set(pitches) == _tiled_chord_tones(root, quality, max(pitches))
 
 
 def test_a_seventh_stays_one_handed_and_plucked_through_the_pipeline() -> None:

@@ -87,10 +87,10 @@ from typing import TYPE_CHECKING, cast
 from melete import theory, vocabulary
 from melete.families._shared import (
     Parameters,
+    apex_doubled,
     box,
     layout_hints,
     realizable,
-    there_and_back,
     windowed,
 )
 from melete.families.arpeggio_shapes import shape_places
@@ -447,13 +447,17 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     placed once and `pattern` slides its window along it; `_order_and_hints` then
     orders the result up and back. The two paths turn around differently — the
     one-hand journey at a *cell* boundary (apex cell dropped, so the count stays
-    tileable), the tapped triad at the *note* level (a clean symmetric palindrome
-    that retraces the full ascent in reverse, spec §6, corpus R7).
+    tileable), the tapped triad at the *note* level (an apex-doubled symmetric
+    palindrome that retraces the full ascent in reverse and re-taps the apex at
+    the turn, so its even count tiles with no lever and the closing root survives,
+    spec §6, corpus R7/R12).
 
     The hints are the fitter's window onto what the voice alone does not carry:
     the natural cell (one turn of the `pattern` window for the one-hand journey,
-    the single tap for the tapped triad) and the apex the journey turns around at,
-    so the fitter's apex levers know where to act.
+    the single tap for the tapped triad) and the apex the journey turns around at.
+    The one-hand journey declares the note-count levers so the fitter can reach a
+    whole-bar tile; the tapped triad declares none, because its even count always
+    tiles and a lever would only break the symmetry.
     """
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
@@ -484,7 +488,7 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     return score, hints
 
 
-_TAPPED_LEVERS = (Lever.ADD_ONE, Lever.DROP_ONE, Lever.APEX_REPEAT, Lever.APEX_OMIT)
+_ONE_HAND_LEVERS = (Lever.ADD_ONE, Lever.DROP_ONE, Lever.APEX_REPEAT, Lever.APEX_OMIT)
 
 
 def _order_and_hints(
@@ -499,21 +503,26 @@ def _order_and_hints(
       at a *cell* boundary: `journey.updown` plays the ascent, then the retrograde
       of the ascent *minus its trailing apex cell*, so the note count stays a whole
       number of `pattern` cells and the fitter always has whole beats (the #132
-      fix). Its cell is one turn of the window and its seam is that cell's last note.
+      fix). Its cell is one turn of the window and its seam is that cell's last
+      note, and it declares the full lever set — its count is not guaranteed even,
+      so the fitter may need one to reach a whole-bar tile.
 
-    * The **two-hand tapped** triad journey turns around at the *note* level, a
-      clean symmetric palindrome: the descent retraces the **full** ascending pitch
-      sequence in reverse (`there_and_back`), the apex tapped once at the turn, so
-      the whole journey reads the same forwards and backwards (spec §6, corpus R7,
-      `melete#200`). Nothing is dropped — the tapped line mirrors exactly, with no
-      cascade repeat. Its natural rhythmic cell is the single tap (`cell = 1`), so
-      the odd up-and-back count tiles the way the plain `straight` line already
-      does; the seam is the apex, the last ascending note.
+    * The **two-hand tapped** triad journey turns around at the *note* level, an
+      **apex-doubled** symmetric palindrome: the descent retraces the full
+      ascending pitch sequence in reverse and the apex is *re-tapped* at the turn
+      (`apex_doubled`), so the whole journey reads the same forwards and backwards
+      and ends where it began — on the root (spec §6, corpus R7/R12, `melete#205`).
+      The re-tapped apex makes the count **even** (2L), which always tiles into
+      whole bars with **no note-count lever** — so this path declares `levers=()`,
+      the one thing that guarantees the fitter never drops the closing root
+      (`DROP_ONE` on the old odd count did exactly that, undoing the symmetry, F1
+      `melete#201`). Its natural rhythmic cell is the single tap (`cell = 1`); the
+      seam is the last ascending note, the first of the doubled apex.
     """
     if tapped:
-        order = there_and_back(list(ascending))
-        hints = layout_hints(cell=1, seam=len(ascending) - 1, levers=_TAPPED_LEVERS)
+        order = apex_doubled(list(ascending))
+        hints = layout_hints(cell=1, seam=len(ascending) - 1, levers=())
         return order, hints
     order = updown(ascending, len(window))
-    hints = layout_hints(cell=len(window), seam=len(ascending) - 1, levers=_TAPPED_LEVERS)
+    hints = layout_hints(cell=len(window), seam=len(ascending) - 1, levers=_ONE_HAND_LEVERS)
     return order, hints
