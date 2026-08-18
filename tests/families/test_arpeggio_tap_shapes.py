@@ -140,16 +140,25 @@ def test_unknown_quality_raises():
 # note is left-hand-tapped, its higher-fret note right-hand-tapped (R11). String
 # N carries root (left) + third (right); string N+1 carries fifth (left) +
 # seventh (right). So left = root+fifth, right = third+seventh. Frets are derived
-# from the chord intervals so pitch is preserved; fingering is unknown for now
-# (the instructor's seventh example carried no marks) so every finger is None.
+# from the chord intervals so pitch is preserved; fingering is derived the same
+# way (R2/R3): root=index(1), third=index(1), seventh=middle(2), and the left-hand
+# fifth mirrors its fret gap above the root — ring(3) for a perfect fifth,
+# middle(2) for a diminished fifth.
 
 #: The five seventh qualities the box covers — the exact keys in theory.CHORDS.
 _SEVENTHS = ("maj7", "min7", "dom7", "m7b5", "dim7")
 
+#: R2 — the left-hand fifth finger mirrors the fifth's fret gap above the root:
+#: ring (3) for a perfect fifth (interval 7), middle (2) for a diminished fifth
+#: (interval 6). maj7/dom7/min7 have a perfect fifth; m7b5/dim7 a diminished one.
+_FIFTH_FINGER = {"maj7": 3, "dom7": 3, "min7": 3, "m7b5": 2, "dim7": 2}
+
 
 def test_seventh_box_has_the_four_fixed_positions():
     # R11: root, third, fifth, seventh; string offsets 0,0,1,1; hands L,R,L,R.
-    # Fingering is deferred, so every finger is None.
+    # Root/third/seventh fingers are quality-independent (1,1,2) so they are
+    # static; the fifth finger is derived per quality (R2) so the box declares it
+    # None.
     assert [p.string_offset for p in tap.SEVENTH_TAP_BOX] == [0, 0, 1, 1]
     assert [p.hand for p in tap.SEVENTH_TAP_BOX] == [
         Hand.LEFT,
@@ -157,7 +166,7 @@ def test_seventh_box_has_the_four_fixed_positions():
         Hand.LEFT,
         Hand.RIGHT,
     ]
-    assert [p.finger for p in tap.SEVENTH_TAP_BOX] == [None, None, None, None]
+    assert [p.finger for p in tap.SEVENTH_TAP_BOX] == [1, 1, None, 2]
     assert [p.role for p in tap.SEVENTH_TAP_BOX] == ["root", "third", "fifth", "seventh"]
 
 
@@ -199,8 +208,24 @@ def test_seventh_box_stamps_the_two_hand_grid(quality):
         Hand.LEFT,
         Hand.RIGHT,
     ]
-    # Fingering is deferred for sevenths — no marks invented.
-    assert [finger for _s, _f, _hand, finger in places] == [None, None, None, None]
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_seventh_box_fingers_are_derived_per_r2_r3(quality):
+    # R3: root=index(1), third=index(1), seventh=middle(2) — quality-independent.
+    # R2: the left-hand fifth finger mirrors its fret gap above the root, so a
+    # perfect fifth takes ring(3) and a diminished fifth middle(2).
+    places = tap.seventh_box_places(BASS6, (0, 5), quality)
+    fingers = [finger for _s, _f, _hand, finger in places]
+    assert fingers == [1, 1, _FIFTH_FINGER[quality], 2]
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_seventh_box_fifth_finger_is_derived_from_the_interval(quality):
+    # Not tabulated per quality: the fifth finger is fifth_interval - 4.
+    fifth_interval = theory.CHORDS[quality][2]
+    _root, _third, fifth, _seventh = tap.seventh_box_places(BASS6, (0, 5), quality)
+    assert fifth[3] == fifth_interval - 4
 
 
 @pytest.mark.parametrize("quality", _SEVENTHS)
