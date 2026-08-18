@@ -205,25 +205,37 @@ _ONE_HAND = 1
 _TWO_HANDS = 2
 
 
-def derive(params: Mapping[str, object]) -> dict[str, object]:
+def derive(
+    params: Mapping[str, object],
+    tapped_qualities: frozenset[str] = frozenset(),
+) -> dict[str, object]:
     """The axes `arpeggios` derives from a drawn quality, not sampled (§7, decision 8).
 
-    Tapping is not a sampled axis: a **triad** quality is inherently a tapped
-    candidate (there is no one-hand triad seed shape — decision 10), so the
-    selector lists the four triads alongside the sevenths in the ordinary
-    `qualities` pool and this function turns the drawn quality into the two
-    values that follow from it deterministically:
+    Tapping is not a sampled axis. A **triad** quality is inherently a tapped
+    candidate (there is no one-hand triad seed shape — decision 10), and a
+    **seventh** is tapped only when the pool opts it in — `[pool.arpeggios]
+    tapped_qualities`, the set threaded in as `tapped_qualities` here (G3,
+    `melete#212`). Whichever it is, the selector lists the qualities in the
+    ordinary `qualities` pool and this function turns the drawn quality into the
+    two values that follow from it deterministically:
 
-    * `hands` — `2` for a triad, `1` for a seventh — so coverage accounting and
-      replay see the hand count like any other axis without a `hands`↔`quality`
-      coupling the independent sampler cannot express.
-    * `inversion` — pinned to root for a triad, because the captured tap box is a
-      root-position shape (spec §2) and a non-root triad raises (`_tapped_ascending`).
-      Fixing it here means the selector never *samples* `first`/`second` for a
-      triad and then discards it — the value is derived, so a triad draw does not
-      consume the `inversion` pool at all. A seventh is not a tapped candidate,
-      so its `inversion` is left to be sampled normally (it is absent from the
-      returned mapping).
+    * `hands` — `2` for a triad *or* a tapped-opted seventh, `1` otherwise — so
+      coverage accounting and replay see the hand count like any other axis
+      without a `hands`↔`quality` coupling the independent sampler cannot express.
+    * `inversion` — pinned to root for anything that taps, because the captured tap
+      boxes are root-position shapes (spec §2) and a non-root tap raises
+      (`_tapped_ascending` / `_seventh_tapped_ascending`). Fixing it here means the
+      selector never *samples* `first`/`second` for a tapped quality and then
+      discards it — the value is derived, so a tapped draw does not consume the
+      `inversion` pool at all. A one-hand (untapped) seventh is left to be sampled
+      normally (it is absent from the returned mapping).
+
+    `tapped_qualities` defaults empty, so a hand-written specification or an
+    unconfigured pool taps triads only, exactly as before G3 — a seventh is tapped
+    only when the pool names it (or `tapped_qualities = "all"`). Membership is
+    checked against the drawn quality itself, and `config` has already validated
+    that every member is one of the five tap-eligible sevenths, so a non-seventh
+    never reaches here.
 
     Called incrementally by the selector as it samples, so `quality` may not have
     been drawn yet; until it has, there is nothing to derive and the mapping is
@@ -232,7 +244,8 @@ def derive(params: Mapping[str, object]) -> dict[str, object]:
     quality = params.get("quality")
     if quality is None:
         return {}
-    if _is_triad(cast("str", quality)):
+    drawn = cast("str", quality)
+    if _is_triad(drawn) or drawn in tapped_qualities:
         return {HANDS: _TWO_HANDS, "inversion": INVERSIONS[0]}
     return {HANDS: _ONE_HAND}
 

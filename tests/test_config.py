@@ -30,6 +30,7 @@ from melete.config import (
     load_string,
 )
 from melete.families import REGISTRY
+from melete.families.arpeggio_tap_shapes import SEVENTH_QUALITIES
 
 DROP_D = '[instrument]\nprofile = { name = "drop_d", tuning = [26, 33, 38, 43], fret_count = 20 }\n'
 BASS4 = '[instrument]\nprofile = "bass4"\n'
@@ -189,6 +190,62 @@ def test_arpeggios_accepts_the_four_triads_as_quality_candidates() -> None:
     the sevenths, so listing them is a plain, valid configuration."""
     cfg = load_string('[pool.arpeggios]\nqualities = ["maj", "min", "dim", "aug", "maj7"]')
     assert cfg.pool["arpeggios"].values["quality"] == ("maj", "min", "dim", "aug", "maj7")
+
+
+# --------------------------------------------------------------------------
+# `[pool.arpeggios] tapped_qualities` — the seventh tap opt-in (G3, melete#212)
+# --------------------------------------------------------------------------
+
+
+def test_tapped_qualities_defaults_to_empty_when_unset() -> None:
+    """Unset → no seventh is tapped, so every existing arpeggios config is
+    unchanged: a seventh stays one-hand exactly as before G3."""
+    cfg = load_string('[pool.arpeggios]\nqualities = ["maj7"]')
+    assert cfg.pool["arpeggios"].tapped_qualities == frozenset()
+
+
+def test_tapped_qualities_accepts_an_explicit_list_of_sevenths() -> None:
+    cfg = load_string('[pool.arpeggios]\ntapped_qualities = ["min7", "maj7"]')
+    assert cfg.pool["arpeggios"].tapped_qualities == frozenset({"min7", "maj7"})
+
+
+def test_tapped_qualities_all_expands_to_every_tap_eligible_seventh() -> None:
+    """The `"all"` shorthand matches `roots = "all"`: it expands to the five
+    tap-eligible sevenths, the single source of truth the seventh box is built on."""
+    cfg = load_string('[pool.arpeggios]\ntapped_qualities = "all"')
+    assert cfg.pool["arpeggios"].tapped_qualities == frozenset(SEVENTH_QUALITIES)
+
+
+def test_an_empty_tapped_qualities_list_taps_nothing() -> None:
+    """It is a toggle, not a candidate pool, so an empty list is the same as
+    omitting the key — no seventh tapped — rather than an un-sampleable-axis error."""
+    cfg = load_string("[pool.arpeggios]\ntapped_qualities = []")
+    assert cfg.pool["arpeggios"].tapped_qualities == frozenset()
+
+
+def test_a_non_seventh_in_tapped_qualities_is_a_loud_error() -> None:
+    """Only the five tap-eligible sevenths may appear: a triad taps unconditionally
+    already and is not a seventh, so naming one here is a config error (§13)."""
+    with pytest.raises(ConfigError) as exc:
+        load_string('[pool.arpeggios]\ntapped_qualities = ["maj"]')
+    assert "tapped_qualities" in str(exc.value)
+    assert "maj" in str(exc.value)
+
+
+def test_an_unknown_quality_in_tapped_qualities_is_a_loud_error() -> None:
+    with pytest.raises(ConfigError) as exc:
+        load_string('[pool.arpeggios]\ntapped_qualities = ["nope"]')
+    assert "tapped_qualities" in str(exc.value)
+    assert "nope" in str(exc.value)
+
+
+def test_tapped_qualities_under_a_non_arpeggios_family_is_rejected() -> None:
+    """Tapping a seventh is an `arpeggios` concept (the two-hand tap box, spec §5),
+    so no other family's pool may name the key — it is an unrecognized key there."""
+    for family in ("scales", "intervals", "chromatic"):
+        with pytest.raises(ConfigError) as exc:
+            load_string(f'[pool.{family}]\ntapped_qualities = ["min7"]')
+        assert "tapped_qualities" in str(exc.value)
 
 
 def test_rhythm_has_no_tempo() -> None:

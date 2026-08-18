@@ -757,6 +757,82 @@ def test_an_untapped_arpeggios_pool_records_one_hand_and_is_unchanged() -> None:
 
 
 # --------------------------------------------------------------------------
+# `tapped_qualities` opts a seventh into the two-hand tap (G3, melete#212)
+# --------------------------------------------------------------------------
+
+
+def test_a_configured_seventh_derives_two_hands_and_a_root_inversion() -> None:
+    """G3: a seventh the pool names in `tapped_qualities` taps like a triad —
+    `hands = 2`, `inversion` pinned to root and never sampled (the tap box is a
+    root-position grid, spec §2), so it does not enter the draw's weight inputs."""
+    config = arpeggios_config(
+        qualities='["min7"]',
+        session=shape(arpeggios=4),
+        inversions='["root", "first", "second"]',
+        tapped_qualities='["min7"]',
+    )
+
+    for spec, inputs in select(config, [], seeded(60)):
+        assert spec.params["quality"] == "min7"
+        assert spec.params["hands"] == 2
+        assert spec.params["inversion"] == "root"
+        assert "inversion" not in inputs.distances
+
+
+def test_tapped_qualities_all_taps_every_seventh_drawn() -> None:
+    """`tapped_qualities = "all"` opts in every tap-eligible seventh, so each
+    drawn seventh derives two hands."""
+    config = arpeggios_config(
+        qualities='["maj7", "min7", "dom7", "m7b5", "dim7"]',
+        session=shape(arpeggios=8),
+        tapped_qualities='"all"',
+    )
+
+    for spec in specs_of(select(config, [], seeded(61))):
+        assert spec.params["hands"] == 2
+        assert spec.params["inversion"] == "root"
+
+
+def test_a_seventh_not_in_tapped_qualities_stays_one_hand() -> None:
+    """Opting `min7` in leaves every other seventh one-hand: a drawn `maj7`
+    derives `hands = 1` and samples its inversion normally."""
+    config = arpeggios_config(
+        qualities='["maj7"]',
+        session=shape(arpeggios=4),
+        inversions='["root", "first", "second"]',
+        tapped_qualities='["min7"]',
+    )
+
+    for spec, inputs in select(config, [], seeded(62)):
+        assert spec.params["quality"] == "maj7"
+        assert spec.params["hands"] == 1
+        assert spec.params["inversion"] in {"root", "first", "second"}
+        assert "inversion" in inputs.distances
+
+
+def test_the_session_log_round_trips_a_tapped_seventh(tmp_path: Path) -> None:
+    """The derived `hands = 2` for a configured seventh is recorded like any other
+    axis, so a written session reads back with it — proof G3's coupling survives
+    the round-trip the sheet is reproduced from (spec §12)."""
+    config = arpeggios_config(
+        qualities='["min7"]',
+        session=shape(arpeggios=4),
+        tapped_qualities='["min7"]',
+    )
+    picks = select(config, [], seeded(63))
+    date = datetime.date(2026, 8, 18)
+
+    recorded = session.record(date, config, picks, seed=1)
+    session.write(tmp_path, recorded)
+    reread = session.read(session.directory(tmp_path, date))
+
+    assert reread.exercises == recorded.exercises  # the whole spec round-trips
+    for spec in reread.exercises:
+        assert spec.params["hands"] == 2
+        assert spec.params["inversion"] == "root"
+
+
+# --------------------------------------------------------------------------
 # The test that proves the point (spec §14)
 # --------------------------------------------------------------------------
 

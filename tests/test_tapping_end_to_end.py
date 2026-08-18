@@ -170,3 +170,68 @@ def test_a_tapped_triad_session_renders_a_gp_carrying_the_tapped_property(
     # fingering reach the `.gp` too.
     assert 'name="LeftHandTapped"' in gpif
     assert "RightFingering" in gpif
+
+
+#: A `bass6` session drawn entirely from `min7` sevenths, opted into tapping by
+#: `tapped_qualities` (G3, `melete#212`). Unlike a triad — inherently tapped — a
+#: seventh taps only because the pool names it here, so this config is the proof
+#: that the last Track-2 piece (selection → derive `hands == 2` → the seventh tap
+#: box → emit) wires end to end. Every draw is a `min7` in the tapped set, so the
+#: whole session taps and no plucked draw could pass the `Tapped` assertion on the
+#: wrong evidence. `roots = "all"` lets the validity gate resample any root whose
+#: seventh grid runs off the neck.
+TAPPED_SEVENTH_CONFIG = """\
+[instrument]
+profile = "bass6"
+
+[session]
+shape = { arpeggios = 4 }
+
+[pool.arpeggios]
+roots = "all"
+qualities = ["min7"]
+tapped_qualities = ["min7"]
+inversions = ["root"]
+patterns = ["straight"]
+
+[pool.rhythm]
+accent_patterns = ["none"]
+note_value_patterns = ["straight"]
+"""
+
+
+@pytest.fixture
+def tapped_seventh_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A project root holding the tapped-seventh `config.toml`, with the process in it."""
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "config.toml").write_text(TAPPED_SEVENTH_CONFIG, encoding="utf-8")
+    monkeypatch.chdir(root)
+    return root
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not ALPHATAB_ON_PATH, reason=NO_TOOLCHAIN)
+def test_a_tapped_seventh_config_renders_a_gp_carrying_the_tapped_property(
+    tapped_seventh_project: Path, run: Callable[[list[str]], int]
+) -> None:
+    """G3's success criterion: a `tapped_qualities`-configured seventh reaches the
+    `.gp` as `Tapped`.
+
+    The same black-box check as the triad case, now for a *configured* seventh: the
+    seventh two-string tap grid (R11) taps root+fifth with the left hand and
+    third+seventh with the right, so a correctly wired chain produces both a
+    `Tapped` and a `LeftHandTapped` property. `Tapped` is the criterion; the
+    left-hand tap corroborates the full two-hand payload survived the export.
+    """
+    run(["generate"])
+
+    practice_gp = session.directory(tapped_seventh_project, TODAY) / "practice.gp"
+    assert practice_gp.exists()
+    assert practice_gp.read_bytes().startswith(b"PK\x03\x04")
+
+    with zipfile.ZipFile(practice_gp) as archive:
+        gpif = archive.read(GPIF_ENTRY).decode("utf-8")
+
+    assert 'name="Tapped"' in gpif
+    assert 'name="LeftHandTapped"' in gpif

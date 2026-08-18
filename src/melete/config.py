@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from melete import vocabulary
 from melete.families import REGISTRY
+from melete.families.arpeggio_tap_shapes import SEVENTH_QUALITIES
 from melete.instrument import (
     DEFAULT_PROFILE,
     PROFILES,
@@ -78,6 +79,14 @@ RHYTHM = "rhythm"
 
 #: The shorthand that expands an axis to every value it accepts.
 ALL = "all"
+
+#: `[pool.arpeggios]`'s tap opt-in key, and the one family it is accepted under.
+#: Tapping a seventh is an `arpeggios` concept — the two-hand tap box (spec §5) —
+#: so no other family's pool may name it; `_pool` rejects it there like any other
+#: unrecognized key. `"all"` expands it to `SEVENTH_QUALITIES`, matching the
+#: `roots = "all"` / `contexts = "all"` shorthand elsewhere.
+TAPPED_QUALITIES = "tapped_qualities"
+_TAPPED_FAMILY = "arpeggios"
 
 _FINGERS = (1, 2, 3, 4)
 _TEMPO_BOUNDS = 2
@@ -130,11 +139,20 @@ class FamilyPool:
     `scale_type`, not `scale_types` — so a pool entry and a session-log entry
     name the same axis. An axis the user did not configure is absent rather
     than defaulted: the pool is what the configuration says, and nothing else.
+
+    `tapped_qualities` is not a sampled axis: it is the set of seventh qualities
+    the pool has opted into *tapping* (`[pool.arpeggios] tapped_qualities`, G3
+    `melete#212`), threaded to `arpeggios.derive` so a drawn seventh in the set
+    derives `hands = 2` like a triad. It is a single toggle over the whole pool
+    rather than a per-value candidate list, so it lives beside `values` rather than
+    in it. Empty for every family but `arpeggios`, and empty there too unless the
+    pool names it — an unconfigured pool taps triads only, unchanged.
     """
 
     family: str
     tempo: tuple[int, int]
     values: Mapping[str, tuple[AxisValue, ...]]
+    tapped_qualities: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -548,16 +566,25 @@ def _pool(raw: object, profile: InstrumentProfile) -> tuple[dict[str, FamilyPool
         where = f"pool.{family}"
         axes = _AXES_BY_FAMILY[family]
         table = _table(where, section.get(family, {}))
-        _reject_unknown(where, table, [*(axis.key for axis in axes), "tempo"])
+        # `tapped_qualities` is an `arpeggios`-only opt-in; every other family
+        # rejects it as unrecognized, like any other key it does not read.
+        extra = (TAPPED_QUALITIES,) if family == _TAPPED_FAMILY else ()
+        _reject_unknown(where, table, [*(axis.key for axis in axes), "tempo", *extra])
         tempo = (
             _tempo(f"{where}.tempo", table["tempo"])
             if "tempo" in table
             else REGISTRY[family].default_tempo_range
         )
+        tapped = (
+            _tapped_qualities(f"{where}.{TAPPED_QUALITIES}", table[TAPPED_QUALITIES])
+            if TAPPED_QUALITIES in table
+            else frozenset()
+        )
         pools[family] = FamilyPool(
             family=family,
             tempo=tempo,
             values=_pool_values(axes, profile, where, table),
+            tapped_qualities=tapped,
         )
 
     where = f"pool.{RHYTHM}"
@@ -566,6 +593,34 @@ def _pool(raw: object, profile: InstrumentProfile) -> tuple[dict[str, FamilyPool
     rhythm = RhythmPool(values=_pool_values(_RHYTHM_AXES, profile, where, table))
 
     return pools, rhythm
+
+
+def _tapped_qualities(key: str, raw: object) -> frozenset[str]:
+    """The seventh qualities `[pool.arpeggios]` has opted into tapping (G3).
+
+    Either the string `"all"` — every tap-eligible seventh — or an explicit list
+    of them, matching the `roots = "all"` shorthand the axis parser uses. The
+    accepted set is `SEVENTH_QUALITIES`, the single source of truth the seventh
+    tap box is built from, so only those five may appear: a non-seventh quality
+    (a triad, which taps unconditionally already) or an unknown one is a loud
+    error naming the accepted set, never a silently ignored entry (§13). An empty
+    list is the same as omitting the key — no seventh is tapped — because this is
+    a toggle, not a candidate pool that would be un-sampleable when empty.
+    """
+    if raw == ALL:
+        return frozenset(SEVENTH_QUALITIES)
+
+    values: set[str] = set()
+    for index, entry in enumerate(_list(key, raw)):
+        quality = _string(f"{key}[{index}]", entry)
+        if quality not in SEVENTH_QUALITIES:
+            _fail(
+                f"{key}[{index}]",
+                f"{quality!r} is not a tap-eligible seventh quality",
+                SEVENTH_QUALITIES,
+            )
+        values.add(quality)
+    return frozenset(values)
 
 
 def _tempo(key: str, raw: object) -> tuple[int, int]:
