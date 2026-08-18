@@ -189,6 +189,21 @@ a triad-voicing consequence of this deeper per-string rule.
 pitch-preserving; the octave-displaced stretched voicings remain a separate
 deferred item.
 
+### R12 — At a turnaround the apex is re-tapped; legato requires a fret change  · **high confidence (first "solve" rule)**
+
+At a direction reversal — the top of an up-and-back run — the apex note is
+**re-tapped** (played twice), not sounded once. The articulation consequence:
+**a slur (hammer/pull) requires a fret change.** Two consecutive notes on the same
+string and hand at the **same fret** are a **re-tap** (`TAPPED`), not a slur — you
+cannot hammer or pull to the same fret; a same-fret repeat is a re-articulation.
+*Evidence:* the corrected examples double the apex across the turnaround
+(re-tapped, not tied); and system-side, the doubled apex gives an **even** note
+count that tiles into whole bars, whereas the apex-*once* (odd) count forces the
+layout fitter's `DROP_ONE` to strip the closing root and break the symmetry (found
+via the E1 sheets, corpus #2). This is the **first implicit real-world adaptation
+captured as a deterministic rule** — a refinement of legato derivation (R7/R9):
+legato is **fret-change-gated**.
+
 ## Open questions (need more examples)
 
 - Do the rules hold for **other roots** (expected: yes, root-relative)?
@@ -233,3 +248,8 @@ emit) stay; only the finger/hand assignment becomes rule-driven.
   plus an alternate four-string diagonal voicing. Surfaced the unifying per-string
   **low = left / high = right** principle, and corrected the spec's "sevenths lean
   stretched" guess.
+- 2026-08-18 — **R12** (first "solve" rule): turnaround apex re-tap; **legato
+  requires a fret change** (same-fret repeat = re-tap, not slur). The first
+  implicit real-world adaptation turned deterministic; also the fix for the
+  symmetric-descent gap (apex-once's odd count let the fitter's `DROP_ONE` strip
+  the closing root). Implemented in F3 (`melete#205`).
