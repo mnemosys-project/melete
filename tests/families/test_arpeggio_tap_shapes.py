@@ -132,3 +132,112 @@ def test_seventh_quality_raises():
 def test_unknown_quality_raises():
     with pytest.raises(ValueError, match="unknown quality"):
         tap.box_places(BASS6, (0, 5), "sus4")
+
+
+# --- The seventh-chord tap box (Task G1, corpus R11) --------------------------
+#
+# A seventh chord's four tones tap on a two-string grid: each string's lower-fret
+# note is left-hand-tapped, its higher-fret note right-hand-tapped (R11). String
+# N carries root (left) + third (right); string N+1 carries fifth (left) +
+# seventh (right). So left = root+fifth, right = third+seventh. Frets are derived
+# from the chord intervals so pitch is preserved; fingering is unknown for now
+# (the instructor's seventh example carried no marks) so every finger is None.
+
+#: The five seventh qualities the box covers — the exact keys in theory.CHORDS.
+_SEVENTHS = ("maj7", "min7", "dom7", "m7b5", "dim7")
+
+
+def test_seventh_box_has_the_four_fixed_positions():
+    # R11: root, third, fifth, seventh; string offsets 0,0,1,1; hands L,R,L,R.
+    # Fingering is deferred, so every finger is None.
+    assert [p.string_offset for p in tap.SEVENTH_TAP_BOX] == [0, 0, 1, 1]
+    assert [p.hand for p in tap.SEVENTH_TAP_BOX] == [
+        Hand.LEFT,
+        Hand.RIGHT,
+        Hand.LEFT,
+        Hand.RIGHT,
+    ]
+    assert [p.finger for p in tap.SEVENTH_TAP_BOX] == [None, None, None, None]
+    assert [p.role for p in tap.SEVENTH_TAP_BOX] == ["root", "third", "fifth", "seventh"]
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_seventh_box_places_sound_the_chord_tones_with_pitch_preserved(quality):
+    root_place = (0, 5)  # low string of the bass, room for the two-string grid
+    root_pitch = BASS6.tuning[root_place[0]] + root_place[1]
+    expected = theory.chord_pitches(root_pitch, quality)
+
+    places = tap.seventh_box_places(BASS6, root_place, quality)
+
+    assert len(places) == 4
+    for (string, fret, _hand, _finger), pitch in zip(places, expected, strict=True):
+        # The central invariant (spec §14): the placement sounds the pitch.
+        assert BASS6.tuning[string] + fret == pitch
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_seventh_box_frets_are_derived_from_the_fourths_tuning(quality):
+    # Not tabulated: each fret is the fourths derivation root_fret + i - 5*offset.
+    root_place = (0, 5)
+    root_fret = root_place[1]
+    intervals = theory.CHORDS[quality]  # root, third, fifth, seventh
+
+    places = tap.seventh_box_places(BASS6, root_place, quality)
+
+    for (_string, fret, _hand, _finger), position, interval in zip(
+        places, tap.SEVENTH_TAP_BOX, intervals, strict=True
+    ):
+        assert fret == root_fret + interval - _FOURTH * position.string_offset
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_seventh_box_stamps_the_two_hand_grid(quality):
+    places = tap.seventh_box_places(BASS6, (0, 5), quality)
+    assert [hand for _s, _f, hand, _finger in places] == [
+        Hand.LEFT,
+        Hand.RIGHT,
+        Hand.LEFT,
+        Hand.RIGHT,
+    ]
+    # Fingering is deferred for sevenths — no marks invented.
+    assert [finger for _s, _f, _hand, finger in places] == [None, None, None, None]
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_seventh_box_left_is_lower_fret_right_is_higher(quality):
+    # R11: on each of the two strings the left-hand note is the lower fret and
+    # the right-hand note the higher fret.
+    root, third, fifth, seventh = tap.seventh_box_places(BASS6, (0, 5), quality)
+    # String N: root (left) below third (right).
+    assert root[0] == third[0]
+    assert root[1] < third[1]
+    # String N+1: fifth (left) below seventh (right).
+    assert fifth[0] == seventh[0]
+    assert fifth[1] < seventh[1]
+    # The two strings are adjacent, climbing one string.
+    assert fifth[0] == root[0] + 1
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_seventh_box_places_are_on_two_strings(quality):
+    places = tap.seventh_box_places(BASS6, (0, 5), quality)
+    assert {string for string, _f, _h, _fin in places} == {0, 1}
+
+
+def test_triad_quality_raises_in_seventh_box():
+    # A triad has three tones, not a seventh — refused rather than forced through
+    # the four-tone two-string grid.
+    with pytest.raises(ValueError, match="seventh"):
+        tap.seventh_box_places(BASS6, (0, 5), "maj")
+
+
+def test_sixth_quality_raises_in_seventh_box():
+    # maj6 is a four-tone chord but not a seventh; the box refuses it (an explicit
+    # allowlist of the five seventh qualities, not a tone-count check).
+    with pytest.raises(ValueError, match="seventh"):
+        tap.seventh_box_places(BASS6, (0, 5), "maj6")
+
+
+def test_unknown_quality_raises_in_seventh_box():
+    with pytest.raises(ValueError, match="unknown quality"):
+        tap.seventh_box_places(BASS6, (0, 5), "sus4")
