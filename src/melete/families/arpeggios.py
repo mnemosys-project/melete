@@ -184,6 +184,18 @@ _OCTAVE_FRET_STEP = 2
 #: two-hand tapped journey; a seventh (four tones) keeps the one-hand journey.
 _TRIAD_TONES = 3
 
+#: The third sits at index 1 of a triad box's role-ordered places (root, third,
+#: fifth, octave-root). Its left-hand finger is the one thing that tiles with
+#: octave position (corpus R4) — index in the first box, ring above — so it is
+#: derived here in the journey rather than baked into the static `TAP_BOX`.
+_THIRD_PLACE = 1
+
+#: The left-hand ring finger R4 assigns the third in every box above the first: a
+#: stretch up to the third, since the octave-root is then the shared right-hand
+#: seam and the left hand is no longer anchored on that octave's root. The first
+#: box keeps the box's own index (1) finger untouched.
+_LEFT_RING_FINGER = 3
+
 #: The string offset of the two-hand box's top string, per box shape — the tile
 #: loop needs it to know the box fits before laying it (its top string must
 #: exist). The triad box spans three strings (offsets 0, 1, 1, 2) so its top sits
@@ -396,6 +408,33 @@ def _root_position_only(inversion: str) -> ValueError:
     return ValueError(msg)
 
 
+def _octave_third_finger(
+    shape: list[tuple[int, int, Hand, int]], *, first_box: bool
+) -> list[tuple[int, int, Hand, int]]:
+    """Re-finger a triad box's third by its octave position (corpus R4).
+
+    The static `box_places` third is left **index (1)**, which is right for the
+    first (root-anchoring) box: there the left hand anchors the octave's root and
+    reaches the third with the index finger. In every higher box the octave-root
+    is the shared right-hand seam, so the left hand is *not* anchored on that
+    octave's root and reaches up to the third with the **ring (3)** finger — the
+    same stretch B0 already applies to the retapped octave-root. This is the first
+    fingering that tiles with position rather than being a fixed box (R5/R8 are the
+    later solve steps), so it is derived here where the journey knows each box's
+    index, not baked into the one-value-fits-all `TAP_BOX`.
+
+    Only the third moves: root, fifth and octave-root keep the box's own fingers.
+    """
+    if first_box:
+        return shape
+    string, fret, hand, _finger = shape[_THIRD_PLACE]
+    return [
+        *shape[:_THIRD_PLACE],
+        (string, fret, hand, _LEFT_RING_FINGER),
+        *shape[_THIRD_PLACE + 1 :],
+    ]
+
+
 def _tapped_ascending(
     profile: InstrumentProfile,
     root: int,
@@ -413,6 +452,10 @@ def _tapped_ascending(
     the ascent. The emitted ascending pitch sequence is then exactly the triad's
     `theory.chord_pitches` tiled across the register — each pitch once (spec §10).
 
+    The third's left-hand finger is the one thing that tiles with octave position
+    (corpus R4, `_octave_third_finger`): index (1) in the first box, ring (3) in
+    every higher box. Root, fifth and octave-root fingering are unchanged.
+
     The captured box is a root-position shape (spec §2); a non-root inversion is
     deferred and raises rather than silently tapping the root-position shape.
     """
@@ -425,9 +468,10 @@ def _tapped_ascending(
 
     notes: list[Note] = []
     for index, shape in enumerate(boxes):
+        fingered = _octave_third_finger(shape, first_box=index == 0)
         # Every box but the last drops its octave-root: it is box N+1's root,
         # emitted once, there. The final box keeps it to cap the ascent.
-        used = shape if index == len(boxes) - 1 else shape[:_TRIAD_TONES]
+        used = fingered if index == len(boxes) - 1 else fingered[:_TRIAD_TONES]
         notes.extend(_tap_note(profile, s, f, h, finger) for s, f, h, finger in used)
     return notes
 

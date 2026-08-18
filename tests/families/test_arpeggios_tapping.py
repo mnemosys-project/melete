@@ -157,6 +157,56 @@ def test_the_box_stamps_the_quality_aware_left_hand_root_finger(quality: str) ->
     assert {note.finger for note in notes} <= {1, 2, 3}
 
 
+@pytest.mark.parametrize("quality", _TRIADS)
+def test_the_third_finger_is_octave_dependent_index_low_ring_above(quality: str) -> None:
+    # R4 (corpus, medium confidence): the triad's third is left **index (1)** in
+    # the first (root-anchoring) box — where the left hand anchors the octave's
+    # root — but left **ring (3)** in every higher box, where the octave-root is
+    # the shared right-hand seam so the left hand only reaches up to the third.
+    # Root, fifth and octave-root fingering are unchanged; this is the first place
+    # fingering becomes tiling-context-dependent rather than a fixed box.
+    score, hints = generate(quality)
+    assert hints.seam is not None
+    ascending = notes_of(score)[: hints.seam + 1]
+
+    # The third's pitch class is distinct from the root's and the fifth's in every
+    # triad, so filtering the ascent by it isolates exactly the octave thirds.
+    third_pitch = theory.chord_pitches(ROOT, quality)[1]
+    thirds = sorted(
+        (note for note in ascending if (note.pitch - third_pitch) % _OCTAVE == 0),
+        key=lambda note: note.pitch,
+    )
+
+    assert len(thirds) >= 2  # a genuine multi-octave journey, so R4 has teeth
+    assert all(note.hand is LEFT for note in thirds)  # the third is always left-hand
+    assert thirds[0].finger == 1  # first octave: left index anchors from the root
+    assert all(note.finger == 3 for note in thirds[1:])  # higher octaves: left ring
+
+
+@pytest.mark.parametrize("quality", _TRIADS)
+def test_root_fifth_and_octave_root_fingering_is_unchanged_by_the_octave_third(
+    quality: str,
+) -> None:
+    # R4 touches only the third. The left-hand root keeps its R2 finger, the
+    # right-hand fifth stays index (1), and the octave-root/seam is untouched — the
+    # octave-third rule must not perturb any other role's fingering.
+    score, hints = generate(quality)
+    assert hints.seam is not None
+    ascending = notes_of(score)[: hints.seam + 1]
+
+    fifth_pitch = theory.chord_pitches(ROOT, quality)[2]
+    fifths = [note for note in ascending if (note.pitch - fifth_pitch) % _OCTAVE == 0]
+    assert fifths  # the journey reaches at least one fifth
+    for fifth in fifths:  # R3: the right hand taps the fifth with index (1)
+        assert fifth.hand is RIGHT
+        assert fifth.finger == 1
+
+    # The low root keeps its quality-aware R2 finger (ring for min/dim, middle for
+    # maj/aug) — unchanged by the octave-third rule.
+    assert ascending[0].hand is LEFT
+    assert ascending[0].finger == _ROOT_FINGER[quality]
+
+
 def test_the_journey_strings_and_hands_are_identical_across_the_four_triads() -> None:
     # Quality-agnostic: dim/aug are data, not code paths. Strings and hands are
     # the same for every triad; only the frets (pitches) and the R2 root finger

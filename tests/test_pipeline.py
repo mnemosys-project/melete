@@ -224,6 +224,39 @@ def test_the_tapped_triad_realizes_a_symmetric_palindrome_ending_on_the_root(
     assert set(pitches) == _tiled_chord_tones(root, quality, max(pitches))
 
 
+@pytest.mark.parametrize("quality", _TRIADS)
+def test_the_tapped_triad_third_finger_is_octave_dependent_post_fitter(quality: str) -> None:
+    """Post-fitter proof of R4 (corpus, epic #67): the third's finger tiles by octave.
+
+    Through `pipeline.realize` — the layer that actually engraves — a multi-octave
+    tapped triad's third is left **index (1)** in the first (root-anchoring) box and
+    left **ring (3)** in every higher box, where the octave-root is the shared
+    right-hand seam so the left hand only reaches up to the third (corpus example
+    `tapped-corrected.gp`: the low third is L1, the higher thirds L3). It is the
+    first place a tapped fingering becomes tiling-context-dependent rather than a
+    fixed box. Root, fifth and octave-root fingering are unchanged.
+    """
+    root = TAPPED_TRIAD["root"]
+    assert isinstance(root, int)
+    spec = {**TAPPED_TRIAD, "quality": quality}
+    score, _plan = pipeline.realize(BASS6, "arpeggios", spec)
+    played = list(notes(score.voice))
+
+    # The third's pitch class is distinct from the root's and the fifth's in every
+    # triad, so filtering by it isolates exactly the octave thirds (each realized
+    # twice by the symmetric palindrome — both taps carry the same octave finger).
+    third_pitch = theory.chord_pitches(root, quality)[1]
+    thirds = [note for note in played if (note.pitch - third_pitch) % _OCTAVE == 0]
+    third_pitches = sorted({note.pitch for note in thirds})
+    assert len(third_pitches) >= 2  # a genuine multi-octave journey, so R4 has teeth
+
+    lowest = third_pitches[0]
+    for note in thirds:
+        assert note.hand is Hand.LEFT  # the third is always left-hand
+        # First octave -> left index (1); every higher octave -> left ring (3).
+        assert note.finger == (1 if note.pitch == lowest else 3)
+
+
 def test_a_seventh_stays_one_handed_and_plucked_through_the_pipeline() -> None:
     """The untapped path is unchanged: a seventh realizes all-plucked, one hand."""
     spec = {**TAPPED_TRIAD, "root": 33, "quality": "min7"}
