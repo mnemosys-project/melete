@@ -34,6 +34,11 @@ from melete.score import Attack, Hand, Note, Voice
 BASS6 = PROFILES["bass6"]  # tuning B0 E1 A1 D2 G2 C3 = 23 28 33 38 43 48; span 4
 _OCTAVE = 12
 _TRIADS = ("maj", "min", "dim", "aug")
+_SEVENTHS = ("maj7", "min7", "dom7", "m7b5", "dim7")
+
+#: R2 — the left-hand fifth finger mirrors the fifth's fret gap above the root:
+#: ring (3) for a perfect fifth, middle (2) for a diminished fifth.
+_FIFTH_FINGER = {"maj7": 3, "min7": 3, "dom7": 3, "m7b5": 2, "dim7": 2}
 
 #: R2 — the left-hand root finger mirrors the third's fret gap: middle (2) for a
 #: major/augmented third, ring (3) for a minor/diminished third.
@@ -225,15 +230,181 @@ def test_the_tapped_journey_stays_two_handed_and_all_tapped_under_every_pattern(
 
 
 # --------------------------------------------------------------------------
-# The seventh path is untouched (one-hand)
+# The two-hand tapped seventh journey (G2, `melete#210`)
+# --------------------------------------------------------------------------
+
+
+def seventh_generate(quality: str, **overrides: object):
+    """A seventh drawn with `hands == 2`: the new two-hand tapped seventh journey."""
+    return generate(quality, hands=2, **overrides)
+
+
+def _tiled_seventh_tones(quality: str, top: int) -> set[int]:
+    """Every seventh chord-tone pitch from the root up to `top`, tiled by the octave."""
+    tones: set[int] = set()
+    for octave in range((top - ROOT) // _OCTAVE + 1):
+        for pitch in theory.chord_pitches(ROOT, quality):
+            tones.add(pitch + _OCTAVE * octave)
+    return {pitch for pitch in tones if pitch <= top}
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_a_seventh_with_two_hands_taps_every_note_with_both_hands(quality: str) -> None:
+    # A seventh drawn with `hands == 2` taps on the seventh box (R11): every note
+    # tapped, a genuine two-hand shape (left = root+fifth, right = third+seventh).
+    score, _hints = seventh_generate(quality)
+    notes = notes_of(score)
+    assert all(note.attack is TAPPED for note in notes)  # no PLUCKED, no SLURRED
+    assert {note.hand for note in notes} == {LEFT, RIGHT}
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_a_seventh_with_two_hands_obeys_the_central_invariant_and_spelling(quality: str) -> None:
+    score, _hints = seventh_generate(quality)
+    assert_central_invariant(score)
+    assert_spelling_sounds_correctly(score)
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_the_tapped_seventh_pitch_content_is_the_chord_tones_tiled(quality: str) -> None:
+    # Spec §10: every emitted pitch is a chord tone, and the whole set of the
+    # seventh's four tones across the register is covered.
+    score, _hints = seventh_generate(quality)
+    pitches = [note.pitch for note in notes_of(score)]
+    top = max(pitches)
+    assert set(pitches) == _tiled_seventh_tones(quality, top)
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_the_tapped_seventh_ascending_pass_is_the_clean_tiling_each_pitch_once(
+    quality: str,
+) -> None:
+    # Unlike the triad box, the seventh grid has no octave-tiling overlap: the
+    # four tones fill the grid, so every box contributes all four tones and the
+    # ascending pitch sequence is strictly increasing — `chord_pitches` tiled,
+    # each pitch once, no seam duplicate.
+    score, hints = seventh_generate(quality)
+    assert hints.seam is not None
+    ascending = [note.pitch for note in notes_of(score)][: hints.seam + 1]
+    assert ascending == sorted(ascending)
+    assert len(ascending) == len(set(ascending))
+    top = ascending[-1]
+    assert set(ascending) == _tiled_seventh_tones(quality, top)
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_the_seventh_grid_tiles_up_consecutive_string_pairs(quality: str) -> None:
+    # R11 / the instructor example (bars 5-6): the next octave sits on the next
+    # string-pair up. Each box occupies two adjacent strings (root+third on N,
+    # fifth+seventh on N+1), and successive boxes climb by whole string-pairs
+    # with no overlap: (0,1), (2,3), (4,5), ...
+    score, hints = seventh_generate(quality)
+    assert hints.seam is not None
+    ascending = notes_of(score)[: hints.seam + 1]
+    strings = [note.string for note in ascending]
+
+    # Four notes per box, on a two-string pair climbing +2 strings each box.
+    assert len(strings) % 4 == 0
+    for box_index in range(len(strings) // 4):
+        low = box_index * 2  # the box's lower string: 0, 2, 4, ...
+        assert strings[box_index * 4 : box_index * 4 + 4] == [low, low, low + 1, low + 1]
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+@pytest.mark.parametrize("pattern", _PATTERNS)
+def test_the_tapped_seventh_descent_mirrors_the_ascent_symmetrically(
+    quality: str, pattern: str
+) -> None:
+    # R7/R12: the tapped seventh journey is the same apex-DOUBLED symmetric
+    # up-and-back as the triad — an even-length palindrome that returns to the
+    # low root, with the apex re-tapped at the fold.
+    score, hints = seventh_generate(quality, pattern=pattern)
+    pitches = [note.pitch for note in notes_of(score)]
+    assert hints.seam is not None
+
+    assert len(pitches) % 2 == 0
+    assert pitches == pitches[::-1]
+    half = len(pitches) // 2
+    assert pitches[half - 1] == pitches[half]  # the doubled apex
+    assert pitches[:half] == pitches[half:][::-1]
+    assert pitches[0] == pitches[-1] == ROOT
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+def test_the_tapped_seventh_stamps_the_quality_aware_left_hand_fifth_finger(quality: str) -> None:
+    # Each box's fifth is left-handed, its finger set by R2 — ring (3) for a
+    # perfect fifth, middle (2) for a diminished fifth — and the whole journey
+    # uses only the box's fingers (index/middle/ring).
+    score, _hints = seventh_generate(quality)
+    notes = notes_of(score)
+    # The box order is root, third, fifth, seventh; the fifth is the third note.
+    fifth = notes[2]
+    assert fifth.hand is LEFT
+    assert fifth.finger == _FIFTH_FINGER[quality]
+    assert {note.finger for note in notes} <= {1, 2, 3}
+
+
+def test_the_seventh_journey_strings_and_hands_are_identical_across_the_five_sevenths() -> None:
+    # Quality-agnostic: the five sevenths are data, not code paths. Strings and
+    # hands are the same for every seventh; only the frets (pitches) and the R2
+    # fifth finger move with the quality.
+    structures = {
+        quality: [(note.string, note.hand) for note in notes_of(seventh_generate(quality)[0])]
+        for quality in _SEVENTHS
+    }
+    reference = structures["maj7"]
+    for quality in _SEVENTHS:
+        assert structures[quality] == reference
+
+
+def test_a_non_root_inversion_seventh_is_deferred_and_raises() -> None:
+    # The seventh box is a root-position shape (spec §2). A non-root inversion is
+    # deferred and raises rather than silently tapping the root-position shape.
+    with pytest.raises(ValueError, match="root-position"):
+        seventh_generate("maj7", inversion="first")
+
+
+def test_a_seventh_with_no_on_neck_box_is_unrealizable_and_raises() -> None:
+    # Rooted below the open low string, the first box's root needs a negative
+    # fret: not even the first grid fits, so the tapped seventh journey is
+    # unrealizable here and raises (spec §9 resamples) rather than clamping.
+    with pytest.raises(ValueError, match="unrealizable"):
+        seventh_generate("min7", root=BASS6.tuning[0] - 1)
+
+
+def test_a_non_integer_hands_is_a_loud_failure() -> None:
+    # `hands` is a hand count: a non-integer (here a string) is rejected rather
+    # than silently defaulting, so a misspelled value is a loud failure (§13).
+    with pytest.raises(ValueError, match="hands must be an integer"):
+        generate("min", hands="two")
+
+
+# --------------------------------------------------------------------------
+# The one-hand seventh path is untouched (hands == 1, or hands unspecified)
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("quality", ["maj7", "min7", "dom7"])
 def test_a_seventh_keeps_the_one_hand_plucked_journey(quality: str) -> None:
-    # A seventh routes to the existing `shape_places` journey: every note is
-    # plucked by the left hand, exactly as before this task.
+    # A seventh with no `hands` (derived to one) routes to the existing
+    # `shape_places` journey: every note plucked by the left hand, as before.
     seventh = {"root": 33, "quality": quality, "inversion": "root", "pattern": "straight"}
+    score, _hints = _generate(BASS6, seventh)
+    notes = notes_of(score)
+    assert all(note.attack is PLUCKED for note in notes)
+    assert all(note.hand is LEFT for note in notes)
+
+
+@pytest.mark.parametrize("quality", ["maj7", "min7", "dom7"])
+def test_a_seventh_with_one_hand_explicitly_keeps_the_plucked_journey(quality: str) -> None:
+    # `hands == 1` routes to the one-hand journey even for a seventh: unchanged.
+    seventh = {
+        "root": 33,
+        "quality": quality,
+        "inversion": "root",
+        "pattern": "straight",
+        "hands": 1,
+    }
     score, _hints = _generate(BASS6, seventh)
     notes = notes_of(score)
     assert all(note.attack is PLUCKED for note in notes)

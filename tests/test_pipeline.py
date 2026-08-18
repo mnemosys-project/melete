@@ -234,6 +234,58 @@ def test_a_seventh_stays_one_handed_and_plucked_through_the_pipeline() -> None:
     assert all(note.hand is Hand.LEFT for note in played)
 
 
+#: The five seventh qualities the seventh box covers (corpus R11).
+_SEVENTHS = ("maj7", "min7", "dom7", "m7b5", "dim7")
+
+
+@pytest.mark.parametrize("quality", _SEVENTHS)
+@pytest.mark.parametrize("pattern", _TRIAD_PATTERNS)
+def test_the_tapped_seventh_realizes_a_symmetric_palindrome_ending_on_the_root(
+    quality: str, pattern: str
+) -> None:
+    """The post-fitter proof for the two-hand seventh journey (G2, spec §6, R7/R11/R12).
+
+    The same property the tapped triad proves, now for a seventh drawn with
+    `hands == 2`: through `pipeline.realize` — the layer that actually engraves —
+    a seventh tiled on the seventh box (R11) is a two-hand tapped, apex-doubled
+    symmetric up-and-back whose pitch content is the chord's four tones tiled:
+
+    * no note-count lever touched the voice (`plan.levers_applied == ()`);
+    * the pitch sequence is a symmetric palindrome beginning and ending on the
+      low root — the closing root survives;
+    * the apex is re-tapped (doubled) at the fold;
+    * every note is `TAPPED` by both hands, no slur stranded;
+    * the pitch content is exactly the seventh's chord tones tiled to the apex.
+    """
+    root = TAPPED_TRIAD["root"]
+    assert isinstance(root, int)
+    spec = {**TAPPED_TRIAD, "quality": quality, "pattern": pattern, "hands": 2}
+    score, plan = pipeline.realize(BASS6, "arpeggios", spec)
+    played = list(notes(score.voice))
+    pitches = [note.pitch for note in played]
+
+    # No note-count lever: the even apex-doubled count tiled into whole bars clean.
+    assert plan.levers_applied == ()
+
+    # A symmetric palindrome, beginning and ending on the low root.
+    assert len(pitches) % 2 == 0
+    assert pitches == pitches[::-1]
+    assert pitches[0] == pitches[-1] == root
+
+    # The apex is doubled at the fold; both halves are exact reverses.
+    half = len(pitches) // 2
+    assert pitches[half - 1] == pitches[half]
+    assert pitches[:half] == pitches[half:][::-1]
+
+    # Every note tapped, both hands used, legato a no-op (no slur stranded).
+    assert all(note.attack is Attack.TAPPED for note in played)
+    assert {note.hand for note in played} == {Hand.LEFT, Hand.RIGHT}
+    assert _no_slur_is_stranded(score.voice)
+
+    # Pitch content preserved: exactly the seventh's chord tones tiled to the apex.
+    assert set(pitches) == _tiled_chord_tones(root, quality, max(pitches))
+
+
 def test_a_stray_subdivision_or_meter_key_does_not_reach_the_page() -> None:
     """#118/#119: the fitter drives meter and subdivision; stray keys are ignored.
 
