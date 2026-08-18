@@ -196,7 +196,13 @@ def box_places(
 #: a triad, or a four-tone sixth chord — is refused rather than forced through it
 #: (an explicit allowlist, not a tone-count test, since sixth chords also have
 #: four tones).
-_SEVENTH_QUALITIES: tuple[str, ...] = ("maj7", "min7", "dom7", "m7b5", "dim7")
+#:
+#: Public because it is the single source of truth for *tap-eligibility*: `config`
+#: validates `[pool.arpeggios] tapped_qualities` against exactly this set, and
+#: `arpeggios.derive` checks membership in it when routing a drawn seventh to the
+#: two-hand journey. A sixth quality respelled here as tappable would become
+#: tappable everywhere at once, with no second list to keep in step.
+SEVENTH_QUALITIES: tuple[str, ...] = ("maj7", "min7", "dom7", "m7b5", "dim7")
 
 #: The fifth's interval sits at index 2 of a chord's interval tuple
 #: (root, third, fifth, seventh). Its fret gap above the root sets the left-hand
@@ -242,18 +248,18 @@ def _seventh_intervals(quality: str) -> tuple[int, ...]:
 
     Intervals come straight from `theory.CHORDS`, so a quality respelled there
     respells the box with it (nothing here is quality-specific). A quality that
-    is not one of the five seventh qualities (`_SEVENTH_QUALITIES`) — a triad, or
+    is not one of the five seventh qualities (`SEVENTH_QUALITIES`) — a triad, or
     a four-tone sixth chord — raises rather than being forced through the
     seventh's two-string grid (spec §9).
     """
     if quality not in theory.CHORDS:
         msg = f"{_FAMILY}: unknown quality {quality!r}; accepted: {sorted(theory.CHORDS)}"
         raise ValueError(msg)
-    if quality not in _SEVENTH_QUALITIES:
+    if quality not in SEVENTH_QUALITIES:
         msg = (
             f"{_FAMILY}: the two-hand tap box for R11 is a seventh-chord shape, but "
             f"{quality!r} is not a seventh quality. Accepted sevenths: "
-            f"{list(_SEVENTH_QUALITIES)}"
+            f"{list(SEVENTH_QUALITIES)}"
         )
         raise ValueError(msg)
     return theory.CHORDS[quality]

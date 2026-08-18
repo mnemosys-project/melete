@@ -61,15 +61,21 @@ type Generate = Callable[[InstrumentProfile, Params], tuple[Score, LayoutHints]]
 
 #: A family's derivation hook (§7, decision 8): given the axes the selector has
 #: sampled so far, the axes that follow from them deterministically rather than
-#: being sampled. It is how `arpeggios` couples `hands` (and a triad's fixed
-#: `inversion`) to the drawn `quality` without new selector machinery — the
+#: being sampled. It is how `arpeggios` couples `hands` (and a tapped quality's
+#: fixed `inversion`) to the drawn `quality` without new selector machinery — the
 #: independent, recency-weighted sampler cannot couple two axes, so a value one
 #: axis fixes is derived, not drawn. Returns an empty mapping when nothing is yet
 #: derivable (the axis it keys on has not been sampled).
-type Derive = Callable[[Params], Params]
+#:
+#: The second argument is the family's tap-eligibility configuration — the set of
+#: seventh qualities the pool has opted into tapping (`[pool.arpeggios]
+#: tapped_qualities`, G3 `melete#212`). It is a bare `frozenset[str]` rather than
+#: a config type so no family imports `config`; it defaults empty, which is what
+#: a family that derives nothing (or a triad-only arpeggios pool) sees.
+type Derive = Callable[[Params, frozenset[str]], Params]
 
 
-def _no_derivation(_params: Params) -> Params:
+def _no_derivation(_params: Params, _tapped_qualities: frozenset[str] = frozenset()) -> Params:
     """The default hook for a family that derives nothing: every axis is sampled."""
     return {}
 

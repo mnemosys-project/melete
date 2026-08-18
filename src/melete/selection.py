@@ -414,22 +414,27 @@ def _sample(family: str, config: Config, slot: _Slot) -> dict[str, AxisValue]:
     — a derived axis is filled from the hook and not sampled, so it never enters
     the slot's weight inputs — and once more at the end, to add the axes the
     family derives that are not in its sampled list at all. `arpeggios` is the one
-    user: a triad `quality` derives `hands = 2` and pins `inversion` to root,
-    while a seventh derives `hands = 1` and leaves `inversion` to be sampled.
+    user: a triad `quality` derives `hands = 2` and pins `inversion` to root, and
+    so does a seventh the pool has opted into tapping (`[pool.arpeggios]
+    tapped_qualities`, G3); every other seventh derives `hands = 1` and leaves
+    `inversion` to be sampled. The pool's tap-eligibility set is threaded into the
+    hook so that coupling is the family's decision, not the selector's.
     """
     params: dict[str, AxisValue] = {}
-    pool = config.pool[family].values
+    family_pool = config.pool[family]
+    pool = family_pool.values
+    tapped = family_pool.tapped_qualities
     derive = REGISTRY[family].derive
     for axis in REGISTRY[family].axes:
         switch = _CONDITIONAL_AXES.get((family, axis))
         if switch is not None and params[switch[0]] != switch[1]:
             continue
-        derived = derive(params)
+        derived = derive(params, tapped)
         if axis in derived:
             params[axis] = cast("AxisValue", derived[axis])
             continue
         params[axis] = slot.draw(axis, _candidates(family, axis, pool))
-    params.update(cast("Mapping[str, AxisValue]", derive(params)))
+    params.update(cast("Mapping[str, AxisValue]", derive(params, tapped)))
     for axis in rhythm.AXES:
         params[axis] = slot.draw(axis, _candidates(RHYTHM, axis, config.rhythm.values))
     return _realized(params, config.instrument)
