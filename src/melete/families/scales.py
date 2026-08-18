@@ -87,14 +87,15 @@ resamples the draw.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from melete import theory, vocabulary
-from melete.families._shared import Parameters, layout_hints, realizable, windowed
+from melete.families._shared import Parameters, apex_doubled, layout_hints, realizable, windowed
 from melete.families.journey import boxed_span, per_string, updown
 from melete.layout import Lever
-from melete.score import Note, Score
+from melete.score import Attack, Hand, Note, Score
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -173,6 +174,21 @@ _JOURNEY_AXES = "root and scale_type"
 #: the identifier and the number must not be able to disagree.
 _NOTES_PER_STRING = 3
 
+#: §7's derived `hands` axis: how many hands the scale is played with. A one-hand
+#: scale is the default (nothing derives two hands from a scale the way a triad
+#: quality does in `arpeggios`), so an absent `hands` reads as `1` and the
+#: existing one-hand journey is byte-for-byte unchanged. `hands == 2` is reachable
+#: only by a caller passing it explicitly (the selection wiring is the follow-up
+#: H2); it routes a `three_note_per_string` scale through the two-hand tapped
+#: journey (corpus R9/R10).
+HANDS = "hands"
+_ONE_HAND = 1
+_TWO_HANDS = 2
+
+#: The last of a string's three tapped degrees is the RIGHT hand's; the two lower
+#: are the LEFT hand's (corpus R9, "low = left, high = right" per string).
+_TOP_OF_STRING = _NOTES_PER_STRING - 1
+
 
 def _title(root: int, scale_type: str, traversal: str, pattern: str) -> str:
     """The plain-language name §12's cover page prints, built from the registry.
@@ -188,6 +204,126 @@ def _title(root: int, scale_type: str, traversal: str, pattern: str) -> str:
     if pattern != _STRAIGHT:
         name = f"{name}, {vocabulary.display('pattern', pattern)}"
     return name
+
+
+def _hands(params: Mapping[str, object]) -> int:
+    """The hand count this scale is played with (§7's derived `hands` axis).
+
+    Read from `params` when present — that is how a caller reaches the two-hand
+    tapped 3nps scale (`hands == 2`) and how a replayed draw restores it. When it
+    is absent — every one-hand specification, and every draw until the H2
+    selection wiring lands — the scale is one-hand (`1`); nothing derives two
+    hands from a scale the way a triad quality does in `arpeggios`, so the default
+    keeps the existing journey byte-for-byte. A non-integer (or a `bool`, which is
+    not a hand count) is a loud failure, never a silent default (§13).
+    """
+    value = params.get(HANDS)
+    if value is None:
+        return _ONE_HAND
+    if isinstance(value, bool) or not isinstance(value, int):
+        msg = f"{_FAMILY}: {HANDS} must be an integer, got {value!r}"
+        raise ValueError(msg)
+    return value
+
+
+def _positional_tapped_is_deferred(traversal: str) -> ValueError:
+    """The refusal for a two-hand *positional* scale (only 3nps taps in H1)."""
+    msg = (
+        f"{_FAMILY}: two-hand tapping is realized only for the "
+        f"{_THREE_NOTE_PER_STRING!r} traversal (corpus R9); traversal {traversal!r} "
+        f"with {HANDS} == {_TWO_HANDS} is a separate deferred shape (H1, melete#214)"
+    )
+    return ValueError(msg)
+
+
+def _tapped_notes(pitches: list[int], places: list[tuple[int, int]]) -> list[Note]:
+    """The ascending 3nps journey as tapped notes, one hand assigned per degree.
+
+    `per_string` lays exactly three consecutive degrees on each string, low to
+    high, so a degree's index modulo three is its role within the string: the
+    **top** (`_TOP_OF_STRING`) is the RIGHT hand's tap, the two **lower** degrees
+    are the LEFT hand's (corpus R9, per-string "low = left, high = right"). Every
+    note is emitted `TAPPED`; the ascending hammer-ons and the descending
+    same-hand pull-offs are the legato pass's to derive after the fitter, and the
+    descending *cross-hand* pull-off is stamped by `_stamp_descending_pulls`.
+    """
+    notes: list[Note] = []
+    for index, (pitch, (string, fret)) in enumerate(zip(pitches, places, strict=True)):
+        hand = Hand.RIGHT if index % _NOTES_PER_STRING == _TOP_OF_STRING else Hand.LEFT
+        notes.append(
+            Note(
+                pitch=pitch,
+                string=string,
+                fret=fret,
+                duration=NOTE_DURATION,
+                finger=None,
+                accent=False,
+                hand=hand,
+                attack=Attack.TAPPED,
+            )
+        )
+    return notes
+
+
+def _stamp_descending_pulls(notes: list[Note]) -> Voice:
+    """Stamp the descending group's cross-hand pull-off as `SLURRED` (corpus R9/R10).
+
+    In a descending 3nps group the right-tapped top is pulled off to the
+    left-fretted note directly below it: a slur that **crosses hands** on one
+    string with a *falling* fret. The shared legato pass derives only *same-hand*
+    runs and cannot tell this pull from a fresh-tapped hand leapfrog, so the
+    family stamps it here (the note directly after a same-string, other-hand,
+    higher-fret note) and `derive_legato` preserves the stamp (`melete#214`). The
+    same-hand slurs — the ascending hammer-on and the lower descending pull — are
+    left `TAPPED` for the legato pass to derive; the ascending top, a *rising*
+    cross-hand tap, is not a pull-off and stays `TAPPED`.
+
+    Operates on the flat run of tapped `Note`s the tapped journey emits, before
+    the barring pass groups any tuplet.
+    """
+    stamped: Voice = []
+    for index, note in enumerate(notes):
+        prev = notes[index - 1] if index else None
+        pull = (
+            prev is not None
+            and prev.string == note.string
+            and prev.hand is not note.hand
+            and prev.fret > note.fret
+        )
+        stamped.append(replace(note, attack=Attack.SLURRED) if pull else note)
+    return stamped
+
+
+def _tapped_scale(
+    profile: InstrumentProfile, supply: list[int], pattern: str
+) -> tuple[Voice, LayoutHints]:
+    """The two-hand tapped 3nps scale, up and back (corpus R9/R10, spec §6).
+
+    The 3nps placement is the one-hand journey's (`journey.per_string`) — three
+    consecutive scale tones per string, climbing outward — but each degree carries
+    its hand (R9) and every note is tapped. The `pattern` window slides along the
+    ascending degrees exactly as the one-hand path, then the journey turns around
+    at the *note* level as an **apex-doubled** symmetric palindrome
+    (`apex_doubled`): the descent is the exact retrograde of the ascent with the
+    apex re-tapped, so each string's descending group reads top-down (tap · pull ·
+    pull) and the even note count tiles into whole bars with no lever — the same
+    turnaround the tapped arpeggio journey uses (corpus R7/R12). The descending
+    cross-hand pull is then stamped (`_stamp_descending_pulls`).
+    """
+    pitches, places = per_string(profile, supply, _NOTES_PER_STRING, _FAMILY, _JOURNEY_AXES)
+    ascending_notes = _tapped_notes(pitches, places)
+
+    window = _PATTERN_WINDOWS[pattern]
+    ascending = windowed(window, len(ascending_notes))
+    order = apex_doubled(ascending)
+
+    voice = _stamp_descending_pulls([ascending_notes[degree] for degree in order])
+    # The single tap is the natural cell; the seam is the apex (the last ascending
+    # note, the first of the doubled pair). The even apex-doubled count always
+    # tiles, so no note-count lever is offered — the one thing that keeps the
+    # symmetric descent's closing root from being stripped (corpus R12).
+    hints = layout_hints(cell=1, seam=len(ascending) - 1, levers=())
+    return voice, hints
 
 
 def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[Score, LayoutHints]:
@@ -211,17 +347,66 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
     the natural cell, and the up-and-down voice declares its apex — the `seam`
     where the ascending half turns around — with the apex-repeat/omit levers the
     fitter uses to reach a whole-bar count.
+
+    With `hands == 2` a `three_note_per_string` scale is instead realized as the
+    **two-hand tapped** journey (corpus R9/R10, `_tapped_scale`): the same 3nps
+    placement, but each string's two lower notes are left-hand and its top is
+    right-hand, ascending groups tap · hammer · tap and descending groups tap ·
+    pull · pull. A two-hand *positional* scale is a separate deferred shape and
+    raises. One-hand scales (the default) are byte-for-byte unchanged.
     """
     read = Parameters(_FAMILY, AXES, params)
     root = read.integer("root")
     scale_type = read.identifier("scale_type")
     traversal = realizable(read, "traversal", _TRAVERSALS)
     pattern = realizable(read, "pattern", tuple(_PATTERN_WINDOWS))
+    hands = _hands(params)
 
     # Enough octaves that the ascent reaches the opposite outer string on any
     # profile: one per string is always more than a hand or the string count
     # needs, and `journey` uses only the leading run it can actually place.
     supply = theory.scale_pitches(root, scale_type, len(profile.tuning) + 1)
+
+    if hands == _TWO_HANDS:
+        if traversal != _THREE_NOTE_PER_STRING:
+            raise _positional_tapped_is_deferred(traversal)
+        voice, hints = _tapped_scale(profile, supply, pattern)
+    else:
+        voice, hints = _one_hand_scale(profile, supply, traversal, pattern)
+
+    score = Score(
+        title=_title(root, scale_type, traversal, pattern),
+        instruction=INSTRUCTION,
+        instrument=profile,
+        time_signature=DEFAULT_TIME_SIGNATURE,
+        tempo_range=DEFAULT_TEMPO_RANGE,
+        voice=voice,
+        # §10a: the exercise is spelled against its own scale, and `root`
+        # reduces to a pitch class because A1 and A2 are the same key.
+        key=theory.Key(root % len(theory.PITCH_CLASSES), scale_type),
+        params=dict(params),
+    )
+    return score, hints
+
+
+def _one_hand_scale(
+    profile: InstrumentProfile, supply: list[int], traversal: str, pattern: str
+) -> tuple[Voice, LayoutHints]:
+    """The one-hand journey (the default), placed then played up and back (spec §5, §6).
+
+    The long ascending pitch supply is placed outer-string to opposite-outer-string
+    under the chosen fingering style (`journey.boxed_span` for `positional`,
+    `journey.per_string` for `three_note_per_string`), the `pattern` window slides
+    along the notes the journey actually used, and `journey.updown` plays that
+    ascent and its exact retrograde. Extent and octave count are emergent from
+    reaching the top string (spec §5); there is no octave target and no one-octave
+    fallback.
+
+    The hints carry §4.2's accounting: one turn of the `pattern` window is the
+    natural cell, the up-and-down voice declares its apex — the `seam` where the
+    ascending half turns around — and the apex-repeat/omit levers the fitter uses
+    to reach a whole-bar count.
+    """
     if traversal == _THREE_NOTE_PER_STRING:
         pitches, places = per_string(profile, supply, _NOTES_PER_STRING, _FAMILY, _JOURNEY_AXES)
     else:  # positional
@@ -242,26 +427,9 @@ def generate(profile: InstrumentProfile, params: Mapping[str, object]) -> tuple[
         )
         for degree in order
     ]
-
-    score = Score(
-        title=_title(root, scale_type, traversal, pattern),
-        instruction=INSTRUCTION,
-        instrument=profile,
-        time_signature=DEFAULT_TIME_SIGNATURE,
-        tempo_range=DEFAULT_TEMPO_RANGE,
-        voice=voice,
-        # §10a: the exercise is spelled against its own scale, and `root`
-        # reduces to a pitch class because A1 and A2 are the same key.
-        key=theory.Key(root % len(theory.PITCH_CLASSES), scale_type),
-        params=dict(params),
-    )
-    # §4.2 hints: the pattern window is the cell; the up-and-down voice is
-    # `directed_by_cell` over the ascending order, turning around at a cell
-    # boundary, so its apex — the last ascending note — is the seam, and the
-    # fitter reaches a whole bar by repeating or omitting that apex cell.
     hints = layout_hints(
         cell=len(window),
         seam=len(ascending) - 1,
         levers=(Lever.APEX_REPEAT, Lever.APEX_OMIT),
     )
-    return score, hints
+    return voice, hints

@@ -420,10 +420,22 @@ def derive_legato(voice: Sequence[Note | Tuplet]) -> Voice:
     a hand change likewise ends the run and forces a fresh `TAPPED`.
 
     The articulation is **derived from scratch** on the note positions, so a
-    note's incoming `attack` does not matter: a run that arrives `SLURRED`-first
-    (because a fitter lever dropped its leading tap) still comes out
-    `TAPPED`-first, and no slur is ever stranded without a tapped attack ahead of
-    it on the same string and hand.
+    same-hand note's incoming `attack` does not matter: a run that arrives
+    `SLURRED`-first (because a fitter lever dropped its leading tap) still comes
+    out `TAPPED`-first, and no same-hand slur is ever stranded without a tapped
+    attack ahead of it on the same string and hand.
+
+    **The one thing derived from more than local same-hand geometry** is the
+    descending 3nps scale group's *cross-hand* pull-off (corpus R9/R10,
+    `melete#214`): the right-tapped top of a per-string group is pulled off to the
+    left-fretted note directly below it. That pull crosses hands on one string
+    with a *falling* fret, so it is not a same-hand run — yet it is a genuine
+    `SLURRED`, not a fresh tap. Local geometry alone cannot tell it apart from an
+    arpeggio's hand-leapfrog (same string, hand change, falling fret) which *is* a
+    fresh tap, so the family that owns the scale shape stamps this note `SLURRED`
+    and this pass **preserves** that stamp when the geometry matches a pull-off
+    (same string, other hand, fret falling). A note the family stamped `TAPPED`
+    across a hand change stays a fresh tap, exactly as before.
 
     Only tapped notes are touched. A `PLUCKED` note — every one-hand family emits
     these — is left exactly as it is and breaks any run, so this pass is a no-op
@@ -443,12 +455,24 @@ def derive_legato(voice: Sequence[Note | Tuplet]) -> Voice:
         if isinstance(item, Note) and item.attack in (Attack.TAPPED, Attack.SLURRED):
             # R12: a slur needs a genuine hammer-on/pull-off — a fret change on the
             # same string and hand. A same-fret repeat there is a re-tap, not a slur.
-            slurred = (
+            same_hand_run = (
                 prev is not None
                 and (prev[0], prev[1]) == (item.string, item.hand)
                 and prev[2] != item.fret
             )
-            attack = Attack.SLURRED if slurred else Attack.TAPPED
+            # R9/R10: the descending scale group's cross-hand pull-off — a
+            # family-stamped SLURRED from the right-tapped top down to the
+            # left-fretted note below (same string, other hand, fret falling).
+            # Preserved rather than re-derived, because local geometry cannot
+            # distinguish it from a fresh-tapped hand leapfrog (`melete#214`).
+            cross_hand_pull = (
+                prev is not None
+                and item.attack is Attack.SLURRED
+                and prev[0] == item.string
+                and prev[1] is not item.hand
+                and prev[2] > item.fret
+            )
+            attack = Attack.SLURRED if (same_hand_run or cross_hand_pull) else Attack.TAPPED
             result.append(replace(item, attack=attack))
             prev = (item.string, item.hand, item.fret)
         else:

@@ -235,3 +235,49 @@ def test_a_tapped_seventh_config_renders_a_gp_carrying_the_tapped_property(
 
     assert 'name="Tapped"' in gpif
     assert 'name="LeftHandTapped"' in gpif
+
+
+#: A two-hand tapped 3nps scale (corpus R9/R10, epic #67, #214): A Ionian, three
+#: notes per string, on the six-string bass. Reached by `hands == 2` in params —
+#: the selection wiring is the follow-up H2, so this renders the realized Score
+#: directly rather than through `melete generate`.
+TAPPED_SCALE: dict[str, object] = {
+    "root": 33,
+    "scale_type": "ionian",
+    "traversal": "three_note_per_string",
+    "pattern": "straight",
+    "hands": 2,
+}
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not ALPHATAB_ON_PATH, reason=NO_TOOLCHAIN)
+def test_a_tapped_3nps_scale_renders_a_gp_carrying_tapped_and_hopo(tmp_path: Path) -> None:
+    """#214's success criterion: a tapped 3nps scale reaches the `.gp` as tap + pull-off.
+
+    The same black-box check as the arpeggio cases, now for the first tapped
+    *scale*: a two-hand tapped 3nps scale (R9/R10) taps the top of each string
+    with the right hand (`Tapped`) and the two lower notes with the left
+    (`LeftHandTapped`), and its ascending hammer-ons and descending pull-offs are
+    hammer/pull legato — which round-trip to a `Hopo` property (alphaTab writes
+    `HopoOrigin` on the origin note and `HopoDestination` on the slurred note) in
+    the score model. The Score is realized through the pipeline and rendered by
+    the real alphaTab, then the `.gp` is unzipped and asserted to carry all three.
+    """
+    from melete import pipeline
+    from melete.alphatab.emit import emit_score
+    from melete.instrument import PROFILES
+
+    score, _plan = pipeline.realize(PROFILES["bass6"], "scales", TAPPED_SCALE)
+    gp_path = render_module.render(emit_score(score), tmp_path)
+
+    assert gp_path.read_bytes().startswith(b"PK\x03\x04")
+    with zipfile.ZipFile(gp_path) as archive:
+        gpif = archive.read(GPIF_ENTRY).decode("utf-8")
+
+    # The right-hand tap on each string's top, the left-hand taps below it, and
+    # the hammer-on/pull-off legato that R9 makes load-bearing for scales
+    # (alphaTab spells a hammer/pull as the `HopoOrigin`/`HopoDestination` pair).
+    assert 'name="Tapped"' in gpif
+    assert 'name="LeftHandTapped"' in gpif
+    assert 'name="HopoOrigin"' in gpif
