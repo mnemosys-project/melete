@@ -334,7 +334,12 @@ def test_replay_restores_the_order_the_parameters_were_drawn_in(
     restored = cli.ordered(first)
 
     declared = [*REGISTRY[first.family].axes, *rhythm.AXES]
-    assert list(restored.params) == [axis for axis in declared if axis in first.params]
+    # `scales` (H2) and `arpeggios` (G3) derive `hands`, an axis no family
+    # *declares*: the selector adds it after the declared axes, so `ordered` keeps
+    # it — and any other undeclared recorded axis — at the end, in read order.
+    expected = [axis for axis in declared if axis in first.params]
+    expected += [axis for axis in first.params if axis not in declared]
+    assert list(restored.params) == expected
     assert restored.params == first.params
 
 

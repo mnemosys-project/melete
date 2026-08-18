@@ -89,7 +89,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from melete import theory, vocabulary
 from melete.families._shared import Parameters, apex_doubled, layout_hints, realizable, windowed
@@ -224,6 +224,45 @@ def _hands(params: Mapping[str, object]) -> int:
         msg = f"{_FAMILY}: {HANDS} must be an integer, got {value!r}"
         raise ValueError(msg)
     return value
+
+
+def derive(
+    params: Mapping[str, object],
+    tapped_scale_types: frozenset[str] = frozenset(),
+) -> dict[str, object]:
+    """The axes `scales` derives from a drawn scale type, not sampled (§7, decision 8).
+
+    Tapping is not a sampled axis: a scale is tapped only when the pool opts it in —
+    `[pool.scales] tapped_scale_types`, the set threaded in as `tapped_scale_types`
+    here (H2, `melete#216`). When the drawn `scale_type` is in that set this
+    function turns it into the two values that follow deterministically:
+
+    * `hands` — `2` for a tapped scale, `1` otherwise — so coverage accounting and
+      replay see the hand count like any other axis without a `hands`↔`scale_type`
+      coupling the independent sampler cannot express.
+    * `traversal` — pinned to `three_note_per_string`, because H1 realizes the
+      two-hand tap only for the 3nps journey and a *positional* tapped scale raises
+      (`_positional_tapped_is_deferred`, corpus R9). Fixing it here means the
+      selector never *samples* a traversal for a tapped scale and then discards it —
+      the value is derived, so a tapped draw does not consume the `traversal` pool
+      at all. An untapped scale is left to sample its traversal normally (it is
+      absent from the returned mapping).
+
+    `tapped_scale_types` defaults empty, so a hand-written specification or an
+    unconfigured pool taps nothing — every scale is one-hand exactly as before H2,
+    and the default `{hands: 1}` keeps the existing one-hand journey byte-for-byte.
+    `config` has already validated that every member is a known scale type.
+
+    Called incrementally by the selector as it samples, so `scale_type` may not
+    have been drawn yet; until it has, there is nothing to derive and the mapping
+    is empty.
+    """
+    scale_type = params.get("scale_type")
+    if scale_type is None:
+        return {}
+    if cast("str", scale_type) in tapped_scale_types:
+        return {HANDS: _TWO_HANDS, "traversal": _THREE_NOTE_PER_STRING}
+    return {HANDS: _ONE_HAND}
 
 
 def _positional_tapped_is_deferred(traversal: str) -> ValueError:

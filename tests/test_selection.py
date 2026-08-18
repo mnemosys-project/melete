@@ -833,6 +833,97 @@ def test_the_session_log_round_trips_a_tapped_seventh(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
+# `tapped_scale_types` opts a scale into the two-hand tap (H2, melete#216)
+# --------------------------------------------------------------------------
+
+
+def test_an_untapped_scales_pool_records_one_hand_and_samples_traversal() -> None:
+    """The default pool names no `tapped_scale_types`: every scale is one-hand and
+    its traversal is sampled exactly as before H2."""
+    config = scales_config(session=shape(scales=6))
+
+    for spec, inputs in select(config, [], seeded(70)):
+        assert spec.params["hands"] == 1
+        assert "traversal" in inputs.distances  # traversal is sampled as ever
+
+
+def test_a_configured_scale_derives_two_hands_and_the_3nps_traversal() -> None:
+    """H2: a scale the pool names in `tapped_scale_types` taps — `hands = 2` and
+    `traversal` pinned to three-note-per-string and never sampled (H1 realizes the
+    tap only for 3nps, corpus R9), so it does not enter the draw's weight inputs.
+
+    The pool lists only the `positional` traversal, so the pinned 3nps value is
+    proof the derivation forces it rather than sampling it from the pool."""
+    config = scales_config(
+        session=shape(scales=4),
+        scale_types='["ionian"]',
+        traversals='["positional"]',
+        tapped_scale_types='["ionian"]',
+    )
+
+    for spec, inputs in select(config, [], seeded(71)):
+        assert spec.params["scale_type"] == "ionian"
+        assert spec.params["hands"] == 2
+        assert spec.params["traversal"] == "three_note_per_string"
+        assert "traversal" not in inputs.distances
+
+
+def test_tapped_scale_types_all_taps_every_scale_drawn() -> None:
+    """`tapped_scale_types = "all"` opts in every scale type, so each drawn scale
+    derives two hands and the 3nps traversal."""
+    config = scales_config(
+        session=shape(scales=8),
+        scale_types='["ionian", "dorian", "aeolian"]',
+        traversals='["positional"]',
+        tapped_scale_types='"all"',
+    )
+
+    for spec in specs_of(select(config, [], seeded(72))):
+        assert spec.params["hands"] == 2
+        assert spec.params["traversal"] == "three_note_per_string"
+
+
+def test_a_scale_not_in_tapped_scale_types_stays_one_hand() -> None:
+    """Opting `ionian` in leaves every other scale one-hand: a drawn `dorian`
+    derives `hands = 1` and samples its traversal normally."""
+    config = scales_config(
+        session=shape(scales=4),
+        scale_types='["dorian"]',
+        traversals='["positional", "three_note_per_string"]',
+        tapped_scale_types='["ionian"]',
+    )
+
+    for spec, inputs in select(config, [], seeded(73)):
+        assert spec.params["scale_type"] == "dorian"
+        assert spec.params["hands"] == 1
+        assert spec.params["traversal"] in {"positional", "three_note_per_string"}
+        assert "traversal" in inputs.distances
+
+
+def test_the_session_log_round_trips_a_tapped_scale(tmp_path: Path) -> None:
+    """The derived `hands = 2` and pinned `traversal` for a configured scale are
+    recorded like any other axis, so a written session reads back with them — proof
+    H2's coupling survives the round-trip the sheet is reproduced from (spec §12)."""
+    config = scales_config(
+        session=shape(scales=4),
+        scale_types='["ionian"]',
+        traversals='["positional"]',
+        tapped_scale_types='["ionian"]',
+    )
+    picks = select(config, [], seeded(74))
+    date = datetime.date(2026, 8, 18)
+
+    recorded = session.record(date, config, picks, seed=1)
+    session.write(tmp_path, recorded)
+    reread = session.read(session.directory(tmp_path, date))
+
+    assert reread.exercises == recorded.exercises  # the whole spec round-trips
+    for spec in reread.exercises:
+        assert spec.params["hands"] == 2
+        assert spec.params["traversal"] == "three_note_per_string"
+
+
+# --------------------------------------------------------------------------
 # The test that proves the point (spec §14)
 # --------------------------------------------------------------------------
 

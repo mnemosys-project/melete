@@ -68,14 +68,16 @@ type Generate = Callable[[InstrumentProfile, Params], tuple[Score, LayoutHints]]
 #: derivable (the axis it keys on has not been sampled).
 #:
 #: The second argument is the family's tap-eligibility configuration — the set of
-#: seventh qualities the pool has opted into tapping (`[pool.arpeggios]
-#: tapped_qualities`, G3 `melete#212`). It is a bare `frozenset[str]` rather than
-#: a config type so no family imports `config`; it defaults empty, which is what
-#: a family that derives nothing (or a triad-only arpeggios pool) sees.
+#: drawn axis values the pool has opted into tapping: seventh qualities for
+#: `arpeggios` (`[pool.arpeggios] tapped_qualities`, G3 `melete#212`) and scale
+#: types for `scales` (`[pool.scales] tapped_scale_types`, H2 `melete#216`). It is
+#: a bare `frozenset[str]` rather than a config type so no family imports `config`;
+#: it defaults empty, which is what a family that derives nothing (or a triad-only
+#: arpeggios pool, or an untapped scales pool) sees.
 type Derive = Callable[[Params, frozenset[str]], Params]
 
 
-def _no_derivation(_params: Params, _tapped_qualities: frozenset[str] = frozenset()) -> Params:
+def _no_derivation(_params: Params, _tapped: frozenset[str] = frozenset()) -> Params:
     """The default hook for a family that derives nothing: every axis is sampled."""
     return {}
 
@@ -96,7 +98,9 @@ class Family:
     default_tempo_range: tuple[int, int]
     #: The axes this family *derives* from what the selector has sampled, rather
     #: than sampling them (decision 8). Most families derive nothing; `arpeggios`
-    #: derives `hands` and a triad's `inversion` from the drawn `quality`.
+    #: derives `hands` and a tapped quality's `inversion` from the drawn `quality`,
+    #: and `scales` derives `hands` and a tapped scale's `traversal` from the drawn
+    #: `scale_type`.
     derive: Derive = _no_derivation
 
 
@@ -104,7 +108,12 @@ class Family:
 #: are here; `vocabulary.AXES["family"]` enumerates the same keys.
 REGISTRY: dict[str, Family] = {
     "chromatic": Family(chromatic.generate, chromatic.AXES, chromatic.DEFAULT_TEMPO_RANGE),
-    "scales": Family(scales.generate, scales.AXES, scales.DEFAULT_TEMPO_RANGE),
+    "scales": Family(
+        scales.generate,
+        scales.AXES,
+        scales.DEFAULT_TEMPO_RANGE,
+        derive=scales.derive,
+    ),
     "arpeggios": Family(
         arpeggios.generate,
         arpeggios.AXES,
