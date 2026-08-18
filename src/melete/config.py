@@ -88,6 +88,14 @@ ALL = "all"
 TAPPED_QUALITIES = "tapped_qualities"
 _TAPPED_FAMILY = "arpeggios"
 
+#: `[pool.scales]`'s tap opt-in key, and the one family it is accepted under.
+#: Tapping a scale is a `scales` concept — the two-hand tapped three-note-per-string
+#: journey (spec §7, H2 `melete#216`) — so no other family's pool may name it;
+#: `_pool` rejects it there like any other unrecognized key. `"all"` expands it to
+#: every known scale type, matching the `roots = "all"` shorthand elsewhere.
+TAPPED_SCALE_TYPES = "tapped_scale_types"
+_TAPPED_SCALES_FAMILY = "scales"
+
 _FINGERS = (1, 2, 3, 4)
 _TEMPO_BOUNDS = 2
 _PITCH_CLASSES = 12
@@ -140,19 +148,41 @@ class FamilyPool:
     name the same axis. An axis the user did not configure is absent rather
     than defaulted: the pool is what the configuration says, and nothing else.
 
-    `tapped_qualities` is not a sampled axis: it is the set of seventh qualities
-    the pool has opted into *tapping* (`[pool.arpeggios] tapped_qualities`, G3
-    `melete#212`), threaded to `arpeggios.derive` so a drawn seventh in the set
-    derives `hands = 2` like a triad. It is a single toggle over the whole pool
-    rather than a per-value candidate list, so it lives beside `values` rather than
-    in it. Empty for every family but `arpeggios`, and empty there too unless the
-    pool names it — an unconfigured pool taps triads only, unchanged.
+    `tapped_qualities` and `tapped_scale_types` are not sampled axes: each is the
+    set of drawn axis values the pool has opted into *tapping*, threaded to its
+    family's `derive` hook so a drawn value in the set couples `hands = 2` to
+    itself. `tapped_qualities` is the seventh qualities `[pool.arpeggios]` taps
+    (G3 `melete#212`, so a drawn seventh in the set taps like a triad);
+    `tapped_scale_types` is the scale types `[pool.scales]` taps (H2 `melete#216`,
+    so a drawn scale in the set becomes a two-hand tapped 3nps scale). Each is a
+    single toggle over the whole pool rather than a per-value candidate list, so it
+    lives beside `values` rather than in it. `tapped_qualities` is empty for every
+    family but `arpeggios` and `tapped_scale_types` for every family but `scales`,
+    and empty there too unless the pool names it — an unconfigured pool taps triads
+    only, unchanged.
+
+    `tapped_values` unifies the two under the one role their `derive` hooks read —
+    the pool's tap opt-in set, whichever axis it names — so `selection` threads a
+    single set without knowing which family it is looking at.
     """
 
     family: str
     tempo: tuple[int, int]
     values: Mapping[str, tuple[AxisValue, ...]]
     tapped_qualities: frozenset[str] = frozenset()
+    tapped_scale_types: frozenset[str] = frozenset()
+
+    @property
+    def tapped_values(self) -> frozenset[str]:
+        """The drawn axis values this pool opted into tapping, whichever axis names them.
+
+        A family opts in through exactly one key — `tapped_qualities` for
+        `arpeggios`, `tapped_scale_types` for `scales` — so at most one of the two
+        sets is non-empty and their union is that one set. `selection` passes this
+        to the family's `derive` hook as the tap-eligibility argument, keeping the
+        coupling the family's decision without the selector branching on family.
+        """
+        return self.tapped_qualities | self.tapped_scale_types
 
 
 @dataclass(frozen=True)
@@ -566,25 +596,36 @@ def _pool(raw: object, profile: InstrumentProfile) -> tuple[dict[str, FamilyPool
         where = f"pool.{family}"
         axes = _AXES_BY_FAMILY[family]
         table = _table(where, section.get(family, {}))
-        # `tapped_qualities` is an `arpeggios`-only opt-in; every other family
-        # rejects it as unrecognized, like any other key it does not read.
-        extra = (TAPPED_QUALITIES,) if family == _TAPPED_FAMILY else ()
+        # Each tap opt-in key is accepted under exactly one family — `arpeggios`
+        # for `tapped_qualities`, `scales` for `tapped_scale_types` — and rejected
+        # as unrecognized under every other, like any other key it does not read.
+        extra: tuple[str, ...] = ()
+        if family == _TAPPED_FAMILY:
+            extra = (TAPPED_QUALITIES,)
+        elif family == _TAPPED_SCALES_FAMILY:
+            extra = (TAPPED_SCALE_TYPES,)
         _reject_unknown(where, table, [*(axis.key for axis in axes), "tempo", *extra])
         tempo = (
             _tempo(f"{where}.tempo", table["tempo"])
             if "tempo" in table
             else REGISTRY[family].default_tempo_range
         )
-        tapped = (
+        tapped_qualities = (
             _tapped_qualities(f"{where}.{TAPPED_QUALITIES}", table[TAPPED_QUALITIES])
             if TAPPED_QUALITIES in table
+            else frozenset()
+        )
+        tapped_scale_types = (
+            _tapped_scale_types(f"{where}.{TAPPED_SCALE_TYPES}", table[TAPPED_SCALE_TYPES])
+            if TAPPED_SCALE_TYPES in table
             else frozenset()
         )
         pools[family] = FamilyPool(
             family=family,
             tempo=tempo,
             values=_pool_values(axes, profile, where, table),
-            tapped_qualities=tapped,
+            tapped_qualities=tapped_qualities,
+            tapped_scale_types=tapped_scale_types,
         )
 
     where = f"pool.{RHYTHM}"
@@ -620,6 +661,30 @@ def _tapped_qualities(key: str, raw: object) -> frozenset[str]:
                 SEVENTH_QUALITIES,
             )
         values.add(quality)
+    return frozenset(values)
+
+
+def _tapped_scale_types(key: str, raw: object) -> frozenset[str]:
+    """The scale types `[pool.scales]` has opted into tapping (H2, `melete#216`).
+
+    Either the string `"all"` — every known scale type — or an explicit list of
+    them, matching the `roots = "all"` shorthand the axis parser uses. The accepted
+    set is `vocabulary.accepted("scale_type")`, the same registry `config`
+    validates the `scale_types` axis against, so an unknown scale type is a loud
+    error naming the accepted set, never a silently ignored entry (§13). An empty
+    list is the same as omitting the key — no scale is tapped — because this is a
+    toggle, not a candidate pool that would be un-sampleable when empty.
+    """
+    accepted = vocabulary.accepted("scale_type")
+    if raw == ALL:
+        return frozenset(accepted)
+
+    values: set[str] = set()
+    for index, entry in enumerate(_list(key, raw)):
+        scale_type = _string(f"{key}[{index}]", entry)
+        if scale_type not in accepted:
+            _fail(f"{key}[{index}]", f"{scale_type!r} is not a known scale type", accepted)
+        values.add(scale_type)
     return frozenset(values)
 
 

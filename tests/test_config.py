@@ -248,6 +248,56 @@ def test_tapped_qualities_under_a_non_arpeggios_family_is_rejected() -> None:
         assert "tapped_qualities" in str(exc.value)
 
 
+# --------------------------------------------------------------------------
+# `[pool.scales] tapped_scale_types` — the scale tap opt-in (H2, melete#216)
+# --------------------------------------------------------------------------
+
+
+def test_tapped_scale_types_defaults_to_empty_when_unset() -> None:
+    """Unset → no scale is tapped, so every existing scales config is unchanged:
+    a scale stays one-hand exactly as before H2."""
+    cfg = load_string('[pool.scales]\nscale_types = ["ionian"]')
+    assert cfg.pool["scales"].tapped_scale_types == frozenset()
+
+
+def test_tapped_scale_types_accepts_an_explicit_list_of_scale_types() -> None:
+    cfg = load_string('[pool.scales]\ntapped_scale_types = ["harmonic_minor", "aeolian"]')
+    assert cfg.pool["scales"].tapped_scale_types == frozenset({"harmonic_minor", "aeolian"})
+
+
+def test_tapped_scale_types_all_expands_to_every_known_scale_type() -> None:
+    """The `"all"` shorthand matches `roots = "all"`: it expands to every scale
+    type the vocabulary accepts, the single source of truth the family reads."""
+    cfg = load_string('[pool.scales]\ntapped_scale_types = "all"')
+    assert cfg.pool["scales"].tapped_scale_types == frozenset(vocabulary.accepted("scale_type"))
+
+
+def test_an_empty_tapped_scale_types_list_taps_nothing() -> None:
+    """It is a toggle, not a candidate pool, so an empty list is the same as
+    omitting the key — no scale tapped — rather than an un-sampleable-axis error."""
+    cfg = load_string("[pool.scales]\ntapped_scale_types = []")
+    assert cfg.pool["scales"].tapped_scale_types == frozenset()
+
+
+def test_an_unknown_scale_type_in_tapped_scale_types_is_a_loud_error() -> None:
+    """Only a known scale type may appear: an unknown one is a config error naming
+    the key (§13), never a silently ignored entry."""
+    with pytest.raises(ConfigError) as exc:
+        load_string('[pool.scales]\ntapped_scale_types = ["nope"]')
+    assert "tapped_scale_types" in str(exc.value)
+    assert "nope" in str(exc.value)
+
+
+def test_tapped_scale_types_under_a_non_scales_family_is_rejected() -> None:
+    """Tapping a scale is a `scales` concept (the two-hand tapped 3nps journey,
+    spec §7), so no other family's pool may name the key — it is an unrecognized
+    key there."""
+    for family in ("arpeggios", "intervals", "chromatic"):
+        with pytest.raises(ConfigError) as exc:
+            load_string(f'[pool.{family}]\ntapped_scale_types = ["ionian"]')
+        assert "tapped_scale_types" in str(exc.value)
+
+
 def test_rhythm_has_no_tempo() -> None:
     # Tempo is a per-family default (decision #20); rhythm is a modifier, not
     # a family, so a tempo there would have nothing to override.

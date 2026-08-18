@@ -413,17 +413,20 @@ def _sample(family: str, config: Config, slot: _Slot) -> dict[str, AxisValue]:
     the family's `derive` hook instead. It is consulted before each axis is drawn
     — a derived axis is filled from the hook and not sampled, so it never enters
     the slot's weight inputs — and once more at the end, to add the axes the
-    family derives that are not in its sampled list at all. `arpeggios` is the one
-    user: a triad `quality` derives `hands = 2` and pins `inversion` to root, and
-    so does a seventh the pool has opted into tapping (`[pool.arpeggios]
-    tapped_qualities`, G3); every other seventh derives `hands = 1` and leaves
-    `inversion` to be sampled. The pool's tap-eligibility set is threaded into the
-    hook so that coupling is the family's decision, not the selector's.
+    family derives that are not in its sampled list at all. Two families use it:
+    `arpeggios` derives `hands = 2` and pins `inversion` to root for a triad or a
+    seventh the pool opted into tapping (`[pool.arpeggios] tapped_qualities`, G3),
+    and `scales` derives `hands = 2` and pins `traversal` to three-note-per-string
+    for a scale the pool opted into tapping (`[pool.scales] tapped_scale_types`,
+    H2); every other draw derives `hands = 1` and leaves its coupled axis to be
+    sampled. The pool's tap-eligibility set (`tapped_values`, whichever axis it
+    names) is threaded into the hook so that coupling is the family's decision, not
+    the selector's.
     """
     params: dict[str, AxisValue] = {}
     family_pool = config.pool[family]
     pool = family_pool.values
-    tapped = family_pool.tapped_qualities
+    tapped = family_pool.tapped_values
     derive = REGISTRY[family].derive
     for axis in REGISTRY[family].axes:
         switch = _CONDITIONAL_AXES.get((family, axis))

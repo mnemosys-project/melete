@@ -281,3 +281,71 @@ def test_a_tapped_3nps_scale_renders_a_gp_carrying_tapped_and_hopo(tmp_path: Pat
     assert 'name="Tapped"' in gpif
     assert 'name="LeftHandTapped"' in gpif
     assert 'name="HopoOrigin"' in gpif
+
+
+#: A `bass6` session drawn entirely from `ionian` scales, opted into tapping by
+#: `tapped_scale_types` (H2, `melete#216`). A scale taps only because the pool
+#: names it here, so this config is the proof that the last Track-3 piece
+#: (selection → derive `hands == 2` and the 3nps traversal → the scale tap journey
+#: → emit) wires end to end. Every draw is an `ionian` in the tapped set, so the
+#: whole session taps and no plucked draw could pass the `Tapped` assertion on the
+#: wrong evidence. The traversal is derived to three-note-per-string regardless (H1
+#: realizes the tap only for 3nps), and `roots = "all"` lets the validity gate
+#: resample any root whose 3nps journey runs off the neck.
+TAPPED_SCALE_CONFIG = """\
+[instrument]
+profile = "bass6"
+
+[session]
+shape = { scales = 4 }
+
+[pool.scales]
+roots = "all"
+scale_types = ["ionian"]
+traversals = ["three_note_per_string"]
+patterns = ["straight"]
+tapped_scale_types = ["ionian"]
+
+[pool.rhythm]
+accent_patterns = ["none"]
+note_value_patterns = ["straight"]
+"""
+
+
+@pytest.fixture
+def tapped_scale_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A project root holding the tapped-scale `config.toml`, with the process in it."""
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "config.toml").write_text(TAPPED_SCALE_CONFIG, encoding="utf-8")
+    monkeypatch.chdir(root)
+    return root
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not ALPHATAB_ON_PATH, reason=NO_TOOLCHAIN)
+def test_a_tapped_scale_config_renders_a_gp_carrying_the_tapped_property(
+    tapped_scale_project: Path, run: Callable[[list[str]], int]
+) -> None:
+    """H2's success criterion: a `tapped_scale_types`-configured scale reaches the
+    `.gp` as `Tapped`.
+
+    The same black-box check as the arpeggio cases, now for a *configured* scale:
+    the two-hand tapped 3nps journey (R9/R10) taps the top of each string with the
+    right hand (`Tapped`) and the two lower notes with the left (`LeftHandTapped`),
+    so a correctly wired chain — selection deriving `hands == 2` and the 3nps
+    traversal, the family walking the tapped journey, the emitter stamping the tap
+    effects — produces both. `Tapped` is the criterion; the left-hand tap
+    corroborates the full two-hand payload survived the export.
+    """
+    run(["generate"])
+
+    practice_gp = session.directory(tapped_scale_project, TODAY) / "practice.gp"
+    assert practice_gp.exists()
+    assert practice_gp.read_bytes().startswith(b"PK\x03\x04")
+
+    with zipfile.ZipFile(practice_gp) as archive:
+        gpif = archive.read(GPIF_ENTRY).decode("utf-8")
+
+    assert 'name="Tapped"' in gpif
+    assert 'name="LeftHandTapped"' in gpif
