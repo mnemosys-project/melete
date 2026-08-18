@@ -286,6 +286,75 @@ def test_the_tapped_seventh_realizes_a_symmetric_palindrome_ending_on_the_root(
     assert set(pitches) == _tiled_chord_tones(root, quality, max(pitches))
 
 
+#: A two-hand tapped 3nps scale (corpus R9/R10, epic #67, #214): A Ionian, three
+#: notes per string, drawn with two hands. A Ionian 3nps is known to lay out on
+#: the whole bass6 neck, so the journey realizes without resampling.
+TAPPED_SCALE: dict[str, object] = {
+    "root": 33,
+    "scale_type": "ionian",
+    "traversal": "three_note_per_string",
+    "pattern": "straight",
+    "hands": 2,
+    "accent_pattern": "none",
+    "note_value_pattern": "straight",
+}
+
+
+def test_a_tapped_3nps_scale_realizes_two_handed_up_and_back() -> None:
+    """The post-fitter proof (spec §6, corpus R9/R10, #214), the layer that engraves.
+
+    Through `pipeline.realize` — family, fitter, legato, rhythm — a two-hand
+    tapped 3nps scale is:
+
+    * a two-hand voice, no note plucked, no note-count lever applied;
+    * an apex-doubled symmetric palindrome that returns to the low root;
+    * per string, the two lower notes LEFT and the top RIGHT (corpus R9);
+    * ascending groups tap · hammer · tap and descending groups tap · pull · pull
+      (the descending cross-hand pull survives the legato pass, #214);
+    * pitch content exactly the scale tiled across the neck.
+    """
+    score, plan = pipeline.realize(BASS6, "scales", TAPPED_SCALE)
+    played = list(notes(score.voice))
+    pitches = [note.pitch for note in played]
+
+    # Two hands, nothing plucked, no lever: the even apex-doubled count tiled clean.
+    assert {note.hand for note in played} == {Hand.LEFT, Hand.RIGHT}
+    assert all(note.attack is not Attack.PLUCKED for note in played)
+    assert plan.levers_applied == ()
+
+    # A symmetric palindrome, beginning and ending on the low root.
+    assert len(pitches) % 2 == 0
+    assert pitches == pitches[::-1]
+    assert pitches[0] == pitches[-1] == 33
+    half = len(pitches) // 2
+    assert pitches[half - 1] == pitches[half]  # the doubled apex
+
+    # Pitch content preserved: the one-hand 3nps journey's scale, tiled.
+    one_hand = pipeline.realize(BASS6, "scales", {**TAPPED_SCALE, "hands": 1})[0]
+    assert set(pitches) == {note.pitch for note in notes(one_hand.voice)}
+
+    # Per-string hand split and articulation, group by group (three to a string).
+    ascend, descend = played[:half], played[half:]
+    for start in range(0, half, 3):
+        low, mid, top = ascend[start : start + 3]
+        # R9 ascending: left-tap · left hammer-on · right-tap.
+        assert (low.hand, low.attack) == (Hand.LEFT, Attack.TAPPED)
+        assert (mid.hand, mid.attack) == (Hand.LEFT, Attack.SLURRED)
+        assert (top.hand, top.attack) == (Hand.RIGHT, Attack.TAPPED)
+
+        top_d, mid_d, low_d = descend[start : start + 3]
+        # R9/R10 descending: right-tap the top, pull-off · pull-off to the two below.
+        assert (top_d.hand, top_d.attack) == (Hand.RIGHT, Attack.TAPPED)
+        assert (mid_d.hand, mid_d.attack) == (Hand.LEFT, Attack.SLURRED)
+        assert (low_d.hand, low_d.attack) == (Hand.LEFT, Attack.SLURRED)
+
+
+def test_a_tapped_scale_is_only_the_three_note_per_string_traversal() -> None:
+    """A two-hand positional scale is a deferred shape and raises (spec §9, #214)."""
+    with pytest.raises(ValueError, match=r"three_note_per_string.*deferred"):
+        pipeline.realize(BASS6, "scales", {**TAPPED_SCALE, "traversal": "positional"})
+
+
 def test_a_stray_subdivision_or_meter_key_does_not_reach_the_page() -> None:
     """#118/#119: the fitter drives meter and subdivision; stray keys are ignored.
 

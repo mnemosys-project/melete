@@ -30,10 +30,12 @@ import pytest
 from conftest import assert_central_invariant, assert_spelling_sounds_correctly, notes_of
 
 from melete import theory
+from melete.families._shared import derive_legato
 from melete.families.scales import DEFAULT_TEMPO_RANGE, INSTRUCTION
 from melete.families.scales import generate as _generate
 from melete.instrument import PROFILES, hand_span
 from melete.layout import Lever
+from melete.score import Attack, Hand, Note, Voice
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -486,3 +488,186 @@ def test_a_journey_running_past_the_top_fret_raises() -> None:
     spec = params(root=32, scale_type="minor_pentatonic", traversal="three_note_per_string")
     with pytest.raises(ValueError, match=r"scales: pitch \d+ needs fret 25 on string"):
         generate(BASS6, spec)
+
+
+# --------------------------------------------------------------------------
+# The two-hand tapped 3nps scale (hands == 2; corpus R9/R10, epic #67, #214)
+# --------------------------------------------------------------------------
+
+LEFT, RIGHT = Hand.LEFT, Hand.RIGHT
+TAPPED, PLUCKED, SLURRED = Attack.TAPPED, Attack.PLUCKED, Attack.SLURRED
+
+#: A 3nps scale known to lay out on the whole bass6 neck (the one-hand 3nps tests
+#: pin its exact places): A Ionian, three notes per string, drawn with two hands.
+TAPPED_PARAMS: dict[str, object] = {
+    "root": 33,
+    "scale_type": "ionian",
+    "traversal": "three_note_per_string",
+    "pattern": "straight",
+    "hands": 2,
+}
+
+
+def tapped(**overrides: object) -> Score:
+    """A two-hand tapped 3nps scale, one or more axes replaced."""
+    return generate(BASS6, {**TAPPED_PARAMS, **overrides})
+
+
+def test_a_tapped_scale_taps_every_note_with_both_hands() -> None:
+    # R9: a two-hand shape — every note tapped at the family layer (the legato
+    # pass derives the hammers/pulls after the fitter), both hands in play.
+    notes = notes_of(tapped())
+    assert {note.hand for note in notes} == {LEFT, RIGHT}
+
+
+def test_a_tapped_scale_puts_the_two_lower_notes_left_and_the_top_right() -> None:
+    # R9, per string: of each string's three consecutive degrees the two lower
+    # are LEFT-hand and the top is RIGHT-hand. Checked on the ascending pass,
+    # grouped three-to-a-string.
+    notes = notes_of(tapped())
+    ascent = notes[: len(notes) // 2]  # apex-doubled, so the ascent is the first half
+    for start in range(0, len(ascent), 3):
+        low, mid, top = ascent[start : start + 3]
+        assert low.hand is LEFT and mid.hand is LEFT and top.hand is RIGHT
+        assert low.fret < mid.fret < top.fret  # low, mid, top by fret within the string
+
+
+def test_a_tapped_scale_obeys_the_central_invariant_and_spelling() -> None:
+    score = tapped()
+    assert_central_invariant(score)
+    assert_spelling_sounds_correctly(score)
+
+
+def test_a_tapped_scale_pitch_content_is_the_scale_tiled() -> None:
+    # The pitch content is exactly the one-hand 3nps journey's — the scale tiled
+    # across the neck — the hand split and articulation do not touch which notes
+    # sound.
+    one_hand = pitches_of(generate(BASS6, params(traversal="three_note_per_string")))
+    assert set(pitches_of(tapped())) == set(one_hand)
+
+
+def test_a_tapped_scale_climbs_up_and_back_to_the_low_root() -> None:
+    # The journey is an apex-doubled symmetric palindrome (corpus R7/R12): it
+    # reads the same forwards and back, re-taps the apex at the fold, and returns
+    # to the low root — an even count that tiles with no lever.
+    pitches = pitches_of(tapped())
+    assert len(pitches) % 2 == 0
+    assert pitches == pitches[::-1]
+    half = len(pitches) // 2
+    assert pitches[half - 1] == pitches[half]  # the doubled apex
+    assert pitches[0] == pitches[-1] == 33  # begins and ends on the low root
+
+
+def test_a_tapped_scale_stamps_the_descending_cross_hand_pull() -> None:
+    # The descending group's first pull crosses hands (right-tapped top -> left
+    # mid): the shared legato pass cannot derive it, so the family stamps it
+    # SLURRED. The mid of every descending group (the note right after a
+    # same-string, other-hand, higher-fret note) is SLURRED at the family layer.
+    notes = notes_of(tapped())
+    stamped = [
+        note
+        for prev, note in zip(notes, notes[1:], strict=False)
+        if prev.string == note.string and prev.hand is not note.hand and prev.fret > note.fret
+    ]
+    assert stamped  # there are descending groups
+    assert all(note.attack is SLURRED for note in stamped)
+
+
+def test_a_tapped_scale_declares_a_lever_free_apex_doubled_layout() -> None:
+    # Like the tapped arpeggio journey: the single tap is the cell, the apex is
+    # the seam, and no note-count lever is offered — the even apex-doubled count
+    # always tiles, and a lever would only break the symmetric descent (R12).
+    _score, hints = _generate(BASS6, TAPPED_PARAMS)
+    assert hints.cell == 1
+    assert hints.seam is not None
+    assert hints.levers == ()
+
+
+def test_a_positional_scale_with_two_hands_is_deferred_and_raises() -> None:
+    # Only the 3nps traversal taps in H1; a two-hand positional scale is a
+    # separate deferred shape and raises rather than silently tapping (§9/§13).
+    with pytest.raises(ValueError, match=r"three_note_per_string.*deferred"):
+        tapped(traversal="positional")
+
+
+def test_a_non_integer_hands_is_a_loud_failure() -> None:
+    # `hands` is a hand count: a non-integer (here a string) is rejected rather
+    # than silently defaulting, so a misspelled value is a loud failure (§13).
+    with pytest.raises(ValueError, match="hands must be an integer"):
+        tapped(hands="two")
+
+
+@pytest.mark.parametrize("hands", [None, 1])
+def test_a_one_hand_scale_is_unchanged_by_the_hands_axis(hands: object) -> None:
+    # The default (no `hands`) and an explicit `hands == 1` are the existing
+    # one-hand journey, byte-for-byte: every note plucked by the left hand, no
+    # tapping. Only `hands == 2` taps.
+    spec = params(traversal="three_note_per_string")
+    if hands is not None:
+        spec["hands"] = hands
+    notes = notes_of(generate(BASS6, spec))
+    assert all(note.attack is PLUCKED for note in notes)
+    assert all(note.hand is LEFT for note in notes)
+
+
+def test_the_hands_axis_leaves_the_one_hand_score_byte_for_byte_identical() -> None:
+    # `hands == 1` produces the identical Score the axis-free spec does — the new
+    # routing is a no-op for the one-hand path (the frozen goldens are safe).
+    base = params(traversal="three_note_per_string")
+    assert generate(BASS6, base).voice == generate(BASS6, {**base, "hands": 1}).voice
+
+
+# --------------------------------------------------------------------------
+# The shared legato pass preserves the descending cross-hand pull (R9/R10)
+# --------------------------------------------------------------------------
+
+
+def _tapped_note(string: int, hand: Hand, fret: int, attack: Attack = TAPPED) -> Note:
+    return Note(
+        pitch=BASS6.tuning[string] + fret,
+        string=string,
+        fret=fret,
+        duration=Fraction(1, 4),
+        finger=None,
+        accent=False,
+        hand=hand,
+        attack=attack,
+    )
+
+
+def _attacks(voice: Voice) -> list[Attack]:
+    return [note.attack for note in voice if isinstance(note, Note)]
+
+
+def test_legato_derives_the_ascending_tap_hammer_tap_group() -> None:
+    # R9 ascending: left-tap the low, hammer-on (same hand, fret rising) to the
+    # mid, right-tap the top (a fresh cross-hand tap, not a slur).
+    group: Voice = [
+        _tapped_note(0, LEFT, 10),
+        _tapped_note(0, LEFT, 12),
+        _tapped_note(0, RIGHT, 14),
+    ]
+    assert _attacks(derive_legato(group)) == [TAPPED, SLURRED, TAPPED]
+
+
+def test_legato_preserves_the_descending_tap_pull_pull_group() -> None:
+    # R9/R10 descending: the family stamps the cross-hand pull (right top -> left
+    # mid) SLURRED; the legato pass preserves it and derives the same-hand lower
+    # pull, yielding tap · pull · pull.
+    group: Voice = [
+        _tapped_note(0, RIGHT, 14),
+        _tapped_note(0, LEFT, 12, attack=SLURRED),  # family-stamped cross-hand pull
+        _tapped_note(0, LEFT, 10),
+    ]
+    assert _attacks(derive_legato(group)) == [TAPPED, SLURRED, SLURRED]
+
+
+def test_legato_does_not_slur_a_rising_cross_hand_tap() -> None:
+    # The mirror of the descending pull: a cross-hand move whose fret RISES is a
+    # fresh right-hand tap, not a pull-off — even if it arrived SLURRED, the
+    # geometry is not a pull-off so it re-taps.
+    voice: Voice = [
+        _tapped_note(0, LEFT, 12),
+        _tapped_note(0, RIGHT, 14, attack=SLURRED),
+    ]
+    assert _attacks(derive_legato(voice)) == [TAPPED, TAPPED]
