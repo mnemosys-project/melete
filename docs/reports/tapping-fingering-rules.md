@@ -204,6 +204,40 @@ via the E1 sheets, corpus #2). This is the **first implicit real-world adaptatio
 captured as a deterministic rule** — a refinement of legato derivation (R7/R9):
 legato is **fret-change-gated**.
 
+### R13 — The seventh-chord fingering *derives* from R2/R3 (no new data)  · **high confidence**
+
+The seventh grid's fingering falls straight out of the existing rules — the
+instructor's seventh example carried no fingering marks, and none were needed:
+
+- **root** (string N, LEFT) = **index (1)** — the lower-fret note of the left pair
+  (R2, ordered low-fret → low-finger).
+- **third** (string N, RIGHT) = **index (1)** — R3, lower right-hand note.
+- **fifth** (string N+1, LEFT) = **`fifth_interval − 4`** — ring (3) for a perfect
+  fifth, middle (2) for a diminished fifth (R2: the fifth sits `fifth_interval − 5`
+  frets above the root; the root is index, so fifth = 1 + (fifth_interval − 5)).
+- **seventh** (string N+1, RIGHT) = **middle (2)** — R3, higher right-hand note.
+
+*Significance:* the **first fingering fully predicted** by the corpus rather than
+read from an example — R2 (finger gap = fret gap) and R3 (right index/middle)
+determined all four fingers, quality-dependent fifth and all. The rules have
+started to *predict*, not just record. Implemented in G1 (`melete#208`).
+
+### R14 — Some articulation is context-dependent, not purely local  · **high confidence**
+
+The descending 3nps scale cascade sounds the two lower notes of each string by
+**pull-off** from the right-tapped top. The first of those pulls **crosses hands**
+(right-tapped top → left-fretted mid, same string, falling fret) — and that is
+**locally indistinguishable** from an arpeggio's hand-leapfrog *re-tap* (also same
+string, hand change, falling fret). So a purely local same-hand legato rule (R12)
+**cannot** decide it: the identical local shape is a slur in a descending scale and
+a fresh tap in an arpeggio. The generator must know the **context** — that this is
+a descending scale group — to stamp the pull-off (H1, `melete#214`: the scale
+driver stamps it and `derive_legato` preserves it).
+
+*Significance:* extends R8 (fingering is a local-context solve) to **articulation**
+— a note's slur-vs-tap is not always derivable from its immediate neighbours alone;
+it needs the same "walk the passage with context" the fingering solve does.
+
 ## Open questions (need more examples)
 
 - Do the rules hold for **other roots** (expected: yes, root-relative)?
@@ -253,3 +287,9 @@ emit) stay; only the finger/hand assignment becomes rule-driven.
   implicit real-world adaptation turned deterministic; also the fix for the
   symmetric-descent gap (apex-once's odd count let the fitter's `DROP_ONE` strip
   the closing root). Implemented in F3 (`melete#205`).
+- 2026-08-18 (Tracks 2 & 3 landed) — **R13**: the seventh-chord fingering *derives*
+  from R2/R3 — the first rule-*predicted* fingering, no new data (G1, `melete#208`).
+  **R14**: some articulation is context-dependent, not purely local — the
+  descending scale cross-hand pull-off, locally indistinguishable from an arpeggio
+  re-tap, must be stamped from context (H1, `melete#214`). Two-hand tapping now
+  spans triads, sevenths, and 3nps scales, all implemented and config-driven.
