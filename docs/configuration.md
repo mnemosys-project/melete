@@ -227,6 +227,7 @@ is a modifier rather than a family.
 | `scale_types` | `scale_type` | see [scale types](#scale-types) |
 | `traversals` | `traversal` | the two fingering styles `scales` realizes: `positional`, `three_note_per_string` |
 | `patterns` | `pattern` | see [patterns](#patterns) |
+| `tapped_scale_types` | — (opt-in, not an axis) | a list of [scale types](#scale-types), or `"all"`; see [Two-hand tapping](#two-hand-tapping) |
 
 ### `[pool.arpeggios]`
 
@@ -236,6 +237,7 @@ is a modifier rather than a family.
 | `qualities` | `quality` | see [chord qualities](#chord-qualities) |
 | `inversions` | `inversion` | `root`, `first`, `second`, `third` |
 | `patterns` | `pattern` | see [patterns](#patterns) |
+| `tapped_qualities` | — (opt-in, not an axis) | a list of the five tap-eligible sevenths (`maj7`, `min7`, `dom7`, `m7b5`, `dim7`), or `"all"`; see [Two-hand tapping](#two-hand-tapping) |
 
 ### `[pool.intervals]`
 
@@ -251,6 +253,46 @@ is a modifier rather than a family.
 `scale_type` is the one **conditional** axis: it is drawn only when the drawn
 `context` is `diatonic`. A pool whose `contexts` is `["chromatic"]` alone may
 therefore omit `scale_types`; any pool that can draw `diatonic` must declare it.
+
+### Two-hand tapping
+
+Two-hand tapping (epic #67) is **derived, never sampled**. Whether an exercise is
+tapped is not a candidate value the selector draws; it follows from the drawn
+quality or scale type, so there is no `hands` key to configure. The design is in
+[design.md](design.md#two-hand-tapping).
+
+Two things follow from that. First, some exercises tap **unconditionally**:
+every **triad** quality (`maj`, `min`, `dim`, `aug`) is a two-hand tapped
+arpeggio, because there is no one-hand triad seed shape. Nothing opts them in and
+nothing can opt them out — drawing a triad draws a tapped exercise. Second, the
+two opt-in keys below extend tapping to chords and scales that would otherwise be
+played one-handed:
+
+| Key | Section | Effect |
+|---|---|---|
+| `tapped_qualities` | `[pool.arpeggios]` | the seventh qualities to tap: a list drawn from `maj7`, `min7`, `dom7`, `m7b5`, `dim7`, or `"all"` |
+| `tapped_scale_types` | `[pool.scales]` | the scale types to tap: a list of [scale types](#scale-types), or `"all"` |
+
+Both are **toggles, not candidate pools.** A quality or scale type in the list is
+tapped whenever it is drawn; one absent is played one-handed as before. So an
+empty list means the same as omitting the key — nothing extra is tapped — rather
+than being the empty-pool error a sampled axis would raise. A member is validated
+the way any value is: `tapped_qualities` accepts only the five tap-eligible
+sevenths (a triad, which taps unconditionally, or an unknown quality is a loud
+error), and `tapped_scale_types` only known scale types.
+
+`tapped_qualities` is read only under `[pool.arpeggios]` and `tapped_scale_types`
+only under `[pool.scales]`; either key under any other family's section is an
+unknown-key error, the same as any misspelling.
+
+When a draw taps, the selector **derives** the axes that follow from it rather
+than sampling them, so a tapped draw does not consume those pools: the hand count
+(recorded as a `hands` value in `session.json`), and — because the captured tap
+shapes are root-position, three-note-per-string forms — a tapped arpeggio's
+`inversion` is pinned to `root` and a tapped scale's `traversal` to
+`three_note_per_string`. A **positional** tapped scale is a deferred shape and is
+never produced. These derived values are recorded in the session log like any
+sampled axis, which is what lets `replay` reproduce the tapped exercise exactly.
 
 ## `[pool.rhythm]`
 
