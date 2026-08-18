@@ -8,12 +8,14 @@ carries a `hand`/`finger`; the pitch content is still the triad's own chord
 tones.
 
 The shared legato pass (`_shared.derive_legato`) is tested here in isolation:
-within one hand's same-string run the first note stays `TAPPED` and the rest
-become `SLURRED`; a string or a hand change forces a fresh `TAPPED`. It is a
-no-op for the all-tapped triad default (nothing is same-string+hand consecutive
-there) but must re-derive a correct first-`TAPPED`-per-run for any voice — even
-one a fitter lever repeated or dropped, so no `SLURRED` is ever stranded without
-a `TAPPED` ahead of it on the same string and hand.
+within one hand's same-string run a follower becomes `SLURRED` only when the
+fret changes — a real hammer-on/pull-off (corpus R12, `melete#205`) — while a
+same-fret repeat re-taps and stays `TAPPED`; a string or a hand change forces a
+fresh `TAPPED`. It is a no-op for the all-tapped triad default (the only
+same-string+hand consecutive notes there are the same-fret doubled apex, which
+R12 keeps tapped) but must re-derive a correct first-`TAPPED`-per-run for any
+voice — even one a fitter lever repeated or dropped, so no `SLURRED` is ever
+stranded without a `TAPPED` ahead of it on the same string and hand.
 """
 
 from __future__ import annotations
@@ -164,13 +166,14 @@ def test_the_journey_strings_and_hands_are_identical_across_the_four_triads() ->
 
 
 def test_a_triad_climbs_up_and_back_down() -> None:
-    # The journey is up-and-down: the descending half is the ascent reversed
-    # without replaying the apex, so it returns to where it started.
+    # The journey is up-and-down: the descending half re-taps the apex at the turn
+    # and then reverses the ascent, so it returns to where it started (the low root).
     score, hints = generate("maj")
     pitches = [note.pitch for note in notes_of(score)]
     assert hints.seam is not None
     assert pitches[0] == pitches[-1] == ROOT  # starts and ends on the low root
     assert pitches[hints.seam] == max(pitches)  # turns around at the apex
+    assert pitches[hints.seam] == pitches[hints.seam + 1]  # the apex is re-tapped (doubled)
 
 
 _PATTERNS = ("straight", "numeric_1353", "broken", "sweep_ordered")
@@ -179,27 +182,29 @@ _PATTERNS = ("straight", "numeric_1353", "broken", "sweep_ordered")
 @pytest.mark.parametrize("quality", _TRIADS)
 @pytest.mark.parametrize("pattern", _PATTERNS)
 def test_the_tapped_descent_mirrors_the_ascent_symmetrically(quality: str, pattern: str) -> None:
-    # R7 (corpus, `melete#200`) / spec §6: the tapped triad journey is a
-    # *symmetric* up-and-back. The descent retraces the **full** ascending pitch
-    # sequence in reverse — the apex played once at the turn — so the whole
-    # journey reads the same forwards and backwards. Unlike the one-hand journey's
-    # cell-aligned turnaround (`journey.updown`, which drops the whole apex cell to
-    # keep a tileable count), the tapped line drops nothing: it mirrors exactly.
-    # This is the fix for the asymmetric descent (7 up / <7 down) the seam-merge
-    # turnaround produced under a windowed pattern.
+    # R7/R12 (corpus, `melete#205`) / spec §6: the tapped triad journey is an
+    # apex-DOUBLED symmetric up-and-back. The apex is re-tapped at the turn, so the
+    # full pitch sequence is an even-length palindrome that reads the same forwards
+    # and backwards and returns to the low root. Unlike the one-hand journey's
+    # cell-aligned turnaround (`journey.updown`, which drops the whole apex cell),
+    # the tapped line drops nothing. The even count is load-bearing: it lets the
+    # symmetric descent survive the fitter (proven post-fitter in test_pipeline),
+    # where the old apex-once (odd) count let `DROP_ONE` strip the closing root.
     score, hints = generate(quality, pattern=pattern)
     pitches = [note.pitch for note in notes_of(score)]
     assert hints.seam is not None
 
-    ascending = pitches[: hints.seam]  # everything before the apex
-    descending = pitches[hints.seam + 1 :]  # everything after the apex
-
-    # The descending pitch sequence mirrors the ascending: same length, reversed.
-    assert descending == ascending[::-1]
-    assert len(descending) == len(ascending)
-
-    # And the end-to-end pitch content is symmetric: a palindrome about the apex.
+    # An even-length palindrome: the whole journey mirrors about the doubled apex.
+    assert len(pitches) % 2 == 0
     assert pitches == pitches[::-1]
+
+    # The apex is re-tapped at the fold, and the two halves are exact reverses.
+    half = len(pitches) // 2
+    assert pitches[half - 1] == pitches[half]  # the doubled apex
+    assert pitches[:half] == pitches[half:][::-1]
+
+    # Begins and ends on the low root — the closing root is present.
+    assert pitches[0] == pitches[-1] == ROOT
 
 
 @pytest.mark.parametrize("quality", _TRIADS)
@@ -277,18 +282,38 @@ def test_legato_is_a_noop_for_the_all_tapped_triad_default() -> None:
 
 
 def test_a_same_string_same_hand_run_slurs_after_the_first() -> None:
-    run: Voice = [_tapped(2, LEFT), _tapped(2, LEFT), _tapped(2, LEFT)]
+    # A genuine hammer-on/pull-off run: same string and hand, the fret changing at
+    # every step (R12 — a slur requires a fret change). First taps, the rest slur.
+    run: Voice = [_tapped(2, LEFT, fret=5), _tapped(2, LEFT, fret=7), _tapped(2, LEFT, fret=9)]
     assert _attacks(derive_legato(run)) == [TAPPED, SLURRED, SLURRED]
 
 
 def test_a_string_change_forces_a_fresh_tapped() -> None:
-    voice: Voice = [_tapped(2, LEFT), _tapped(2, LEFT), _tapped(3, LEFT), _tapped(3, LEFT)]
+    voice: Voice = [
+        _tapped(2, LEFT, fret=5),
+        _tapped(2, LEFT, fret=7),
+        _tapped(3, LEFT, fret=5),
+        _tapped(3, LEFT, fret=7),
+    ]
     assert _attacks(derive_legato(voice)) == [TAPPED, SLURRED, TAPPED, SLURRED]
 
 
 def test_a_hand_change_on_the_same_string_forces_a_fresh_tapped() -> None:
-    voice: Voice = [_tapped(2, LEFT), _tapped(2, LEFT), _tapped(2, RIGHT), _tapped(2, RIGHT)]
+    voice: Voice = [
+        _tapped(2, LEFT, fret=5),
+        _tapped(2, LEFT, fret=7),
+        _tapped(2, RIGHT, fret=5),
+        _tapped(2, RIGHT, fret=7),
+    ]
     assert _attacks(derive_legato(voice)) == [TAPPED, SLURRED, TAPPED, SLURRED]
+
+
+def test_r12_a_slur_needs_a_fret_change_a_same_fret_repeat_re_taps() -> None:
+    # R12 (`melete#205`), the gate stated on one string and hand: a fret change is
+    # a hammer-on/pull-off (SLURRED); a repeated fret is a re-tap (TAPPED). You
+    # cannot hammer or pull to the same fret, so the fret is what decides.
+    voice: Voice = [_tapped(2, LEFT, fret=5), _tapped(2, LEFT, fret=5), _tapped(2, LEFT, fret=8)]
+    assert _attacks(derive_legato(voice)) == [TAPPED, TAPPED, SLURRED]
 
 
 def test_plucked_notes_are_left_untouched() -> None:
@@ -304,18 +329,27 @@ def test_plucked_notes_are_left_untouched() -> None:
 
 
 def test_a_dropped_leading_tapped_leaves_no_stranded_slur() -> None:
-    # Post-fitter correctness (spec §3): a run whose leading TAPPED the fitter
-    # dropped arrives as SLURRED-first. Re-derived, its first note is TAPPED
-    # again — a slur is never stranded without a tapped attack ahead of it.
-    dropped: Voice = [_tapped(2, LEFT, attack=SLURRED), _tapped(2, LEFT, attack=SLURRED)]
+    # Post-fitter correctness (spec §3): a fret-changing run whose leading TAPPED
+    # the fitter dropped arrives as SLURRED-first. Re-derived, its first note is
+    # TAPPED again — a slur is never stranded without a tapped attack ahead of it.
+    dropped: Voice = [
+        _tapped(2, LEFT, fret=5, attack=SLURRED),
+        _tapped(2, LEFT, fret=7, attack=SLURRED),
+    ]
     assert _attacks(derive_legato(dropped)) == [TAPPED, SLURRED]
 
 
-def test_a_repeated_apex_note_gets_the_first_tapped_per_run() -> None:
-    # A lever that repeats the apex cell duplicates a note on the same string and
-    # hand; the repeat becomes a slur, the first stays a fresh TAPPED.
-    voice: Voice = [_tapped(1, RIGHT), _tapped(4, RIGHT), _tapped(4, RIGHT), _tapped(1, RIGHT)]
-    assert _attacks(derive_legato(voice)) == [TAPPED, TAPPED, SLURRED, TAPPED]
+def test_a_re_tapped_apex_note_stays_tapped_r12() -> None:
+    # R12 (`melete#205`): the re-tapped apex is two consecutive notes on the same
+    # string and hand at the SAME fret. That is a re-articulation, not a slur — you
+    # cannot hammer or pull to the same fret — so the doubled apex stays TAPPED.
+    voice: Voice = [
+        _tapped(1, RIGHT, fret=5),
+        _tapped(4, RIGHT, fret=7),
+        _tapped(4, RIGHT, fret=7),
+        _tapped(1, RIGHT, fret=5),
+    ]
+    assert _attacks(derive_legato(voice)) == [TAPPED, TAPPED, TAPPED, TAPPED]
 
 
 # --------------------------------------------------------------------------
