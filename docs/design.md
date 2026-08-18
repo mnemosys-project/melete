@@ -12,6 +12,7 @@ spec, the spec is correct and this page is stale.
 - [Running it](#running-it)
 - [Module layout](#module-layout)
 - [What the design is made of](#what-the-design-is-made-of)
+- [Two-hand tapping](#two-hand-tapping)
 - [The two load-bearing boundaries](#the-two-load-bearing-boundaries)
 - [The renderer boundary](#the-renderer-boundary)
 - [The central invariant](#the-central-invariant)
@@ -59,20 +60,25 @@ unmarked is renderer-agnostic.
 ```text
 src/melete/
   instrument.py         InstrumentProfile and fretboard queries
-  score.py              The IR: Note, Tuplet, Voice, Score. Pure data.
+  score.py              The IR: Note (with hand and attack), Tuplet, Voice,
+                        Score. Pure data.
   theory.py             Pitch, interval, scale and chord math, and the
                         §10a spelling model (Key, SpelledPitch)
   vocabulary.py         Canonical parameter identifiers and display names
   families/
     __init__.py         REGISTRY: family name -> generator function
-    _shared.py          Parameter reading, direction ordering, and the
-                        one-hand `box` placement primitive. Not a family;
+    _shared.py          Parameter reading, direction ordering, the one-hand
+                        and two-hand `box` placement primitive, and the
+                        `derive_legato` articulation pass. Not a family;
                         decides nothing about exercises.
     journey.py          The coherent up-and-down journey: places a pitch run
                         outer string to opposite outer string (boxed_span,
                         per_string) and plays it up and back (updown).
     arpeggio_shapes.py  Canonical per-quality seed shapes and their
                         derivation (provisional, instructor-validated).
+    arpeggio_tap_shapes.py  The two-hand tap boxes — triad TAP_BOX and
+                        SEVENTH_TAP_BOX — placed with derived frets and
+                        fingers (provisional, instructor-gated).
     scales.py           }
     arpeggios.py        }  One pure function per family:
     intervals.py        }  parameters -> (Score, LayoutHints)
@@ -117,8 +123,12 @@ renderer.
 **The Score IR (§6).** `Note`, `Tuplet`, `Voice`, `Score` — pure data, one
 level of tuplet nesting, and durations stored as **written** values so a
 triplet eighth is `1/8` inside a `3/2` tuplet rather than an unwritable `1/12`.
-A `Score` also carries a `repeat` flag (§5): a renderer-agnostic intent that
-the exercise plays twice, which the emitter draws as repeat barlines.
+A `Note` also carries which `hand` frets it and how it is `attack`ed — the two
+renderer-agnostic fields two-hand tapping added (§4, epic #67), both defaulted
+so every single-hand family and golden file is untouched (see
+[Two-hand tapping](#two-hand-tapping)). A `Score` also carries a `repeat` flag
+(§5): a renderer-agnostic intent that the exercise plays twice, which the
+emitter draws as repeat barlines.
 
 **The four families (§7).** Scales, arpeggios, intervals and chromatic
 permutations, each a pure function from parameters to a `Score` and the
@@ -154,6 +164,102 @@ under a seed.
 **The session log and replay (§9, §12).** Every generated day writes a
 `session.json` recording the `WeightInputs` and the chosen specs, which is what
 makes `melete replay` reproduce a past sheet exactly.
+
+## Two-hand tapping
+
+Two-hand tapping is a technique in which both hands fret notes on the neck and
+each note is *tapped* — the finger striking the fret sounds the note — rather
+than one hand fretting while the other plucks. Epic #67 shipped it across
+triads, seventh chords and three-note-per-string scales. It reaches into most of
+the pieces above rather than living in one, so it is described here as a whole.
+Everything in it is renderer-agnostic bar the last paragraph: the tap articulations
+are drawn by the emitter, and nothing else names a renderer. The fingering and
+articulation rules it encodes were derived from the instructor's own playing and
+are catalogued as rules R1–R14 in
+[`reports/tapping-fingering-rules.md`](reports/tapping-fingering-rules.md), the
+living source the code cites.
+
+**The data model — two fields on `Note`.** `hand` is `LEFT` or `RIGHT`; `attack`
+is `TAPPED`, `PLUCKED` or `SLURRED`. They are orthogonal — either hand can tap,
+and a slur (a hammer-on or pull-off, sounded with no fresh attack) can occur
+under either hand — and `finger` is read against whichever `hand` the note
+carries. Both default (`LEFT`, `PLUCKED`), which is what leaves every single-hand
+family and every golden file unchanged; two-hand tapping is the only path that
+produces `RIGHT` or a non-plucked attack.
+
+**The tap boxes (`arpeggio_tap_shapes.py`).** A tapped arpeggio is tiled from a
+small captured *box* — the fixed hand, string and choreography of one octave —
+placed up the neck. Two boxes exist. The triad **`TAP_BOX`** puts root and third
+under the left hand and fifth and octave-root under the right, climbing three
+strings; the **`SEVENTH_TAP_BOX`** is a two-string grid with root and fifth left,
+third and seventh right. In both, the string offsets and hands are fixed data,
+but each note's *fret* and the one quality-dependent left-hand finger are
+**derived**, never tabulated: the fret is whatever the profile's tuning needs to
+sound the interval (so pitch is preserved on any tuning by construction), and the
+finger mirrors the fret gap it reaches across (R2/R3). Both boxes are
+PROVISIONAL, pending an instructor gate, and each refuses the other's qualities
+rather than forcing a chord through the wrong shape.
+
+**The tapped journey (`arpeggios.py`).** `generate` routes by the derived `hands`
+axis and then by quality class: with two hands a **triad** walks the two-hand
+tapped triad journey, a **seventh** its own two-hand tapped journey, and with one
+hand either quality keeps the plucked seed-shape journey. A tapped journey tiles
+its box up the neck (`+2` strings / `+2` frets per octave, the triad boxes
+overlapping by their shared octave-root, the seventh grid not overlapping) until
+the next box would leave the neck; it is never clamped to fit, and a specification
+with no on-neck box raises for §9 to resample. Where the one-hand journey turns
+around at a *cell* boundary, the tapped journey turns around at the *note* level
+as an **apex-doubled** symmetric palindrome: the descent retraces the full ascent
+and the apex is re-tapped at the turn. That doubling is load-bearing (R12) — the
+even note count tiles into whole bars with no layout lever, and a lever on the old
+odd count stripped the closing root and broke the symmetry. The triad's two passes
+differ only in the left-hand third's finger, which is octave-dependent ascending
+(R4) and re-taken with the index descending (R5). Tapped journeys are
+root-position only; a non-root inversion is deferred and raises.
+
+**Derived legato (`_shared.py`, `derive_legato`).** Run after the layout fitter on
+the final tiled voice, this pass turns a note into a `SLURRED` hammer-on or
+pull-off **only** where it continues a same-string, same-hand run *and* its fret
+changes — a slur requires a fret change, so a same-fret repeat (the doubled apex)
+stays a re-tap (R12). It is a no-op for the all-tapped arpeggios, whose boxes put
+nothing consecutively on one string and hand, and for the entire plucked pipeline;
+it is load-bearing for the tapped scales. The one thing it derives from more than
+local geometry is the descending scale's *cross-hand* pull-off, which the scale
+family stamps and this pass preserves, because local geometry cannot tell it from
+an arpeggio's hand leapfrog (R9/R10/R14).
+
+**Tapped scales (`scales.py`).** A tapped scale is the three-note-per-string
+journey with a hand assigned per string group — the two lower notes left, the top
+note right (R9). Ascending, each group is tap · hammer · tap; descending, it is
+the cross-hand pull-off cascade, tap · pull · pull. It uses the same apex-doubled
+turnaround as the tapped arpeggios. A two-hand *positional* scale is a separate
+deferred shape and raises.
+
+**Selection derives tapping, never samples it (`selection.py`, `config.py`).**
+`hands` is a derived axis, not a sampled one: the recency-weighted selector draws
+axes independently and cannot couple `hands` to the drawn quality or scale, so each
+family's `derive` hook computes it — a triad is always two hands, and a seventh or
+a scale is two hands only when the pool opts it in through `[pool.arpeggios]
+tapped_qualities` or `[pool.scales] tapped_scale_types`. A tapped draw also has its
+`inversion` (arpeggios) or `traversal` (scales) *derived* rather than sampled, so
+it never consumes those pools. The derived values are recorded in `session.json`
+like any other axis, for coverage accounting and replay. The two config keys are
+documented in
+[configuration.md](configuration.md#poolarpeggios).
+
+**The emitter (`alphatab/emit.py`) — the one renderer-specific part.** The emitter
+draws each tapped note's articulation: `tt` for a right-hand tap, `lht` for a
+left-hand tap, `h` on the origin note of a hammer-on/pull-off, and per-hand
+fingering (`lf`/`rf`). Every token was spike-confirmed against the installed
+alphaTab. This is the only place two-hand tapping crosses the renderer boundary;
+the boxes, the journeys, the legato derivation and the selection are all
+renderer-agnostic.
+
+**Deferred, honestly.** Several tapping shapes the corpus names are *not* built and
+must not be read as shipped: positional tapped scales (they raise), the alternate
+four-string seventh voicing, the rolling groups-of-three pattern and its
+local-window re-handing (R8), the pre-fretted-cascade technique tag (R10), and the
+octave-displaced stretched voicings the spec once guessed sevenths would need.
 
 ## The two load-bearing boundaries
 

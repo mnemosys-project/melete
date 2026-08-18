@@ -293,7 +293,11 @@ Summarize a past session on standard output. Writes nothing.
 
 The first line is the date, the instrument and the seed; then one line per
 exercise, giving its family and its recorded parameters in the order they were
-drawn — the same order the cover page lists them in.
+drawn — the same order the cover page lists them in. The parameters include the
+axes a family **derives** rather than samples, such as the `hands` count of a
+two-hand tapped exercise (epic #67; see
+[configuration.md](configuration.md#two-hand-tapping)), because the session log
+records every axis, derived or sampled.
 
 **`show` does not read `config.toml` at all.** The instrument it reports is the
 recorded one. A profile edited since the session was generated would otherwise
