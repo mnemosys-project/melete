@@ -124,8 +124,8 @@ the memory path stays stable and shared, and the main worktree is
 **read-only** — every change flows through a worktree on a feature
 branch.
 
-`CLAUDE.md` holds the local on-ramp, including the agent prompt
-contract; the canonical specification is
+The `CLAUDE.md` template region holds the agent-facing rules and links
+the agent prompt contract; the canonical specification is
 [`vergil-tooling/docs/specs/worktree-convention.md`](https://github.com/vergil-project/vergil-tooling/blob/develop/docs/specs/worktree-convention.md).
 Read those rather than a paraphrase here.
 
@@ -269,9 +269,9 @@ environment.
 ## Commit and PR scripts
 
 Agents **must** use the wrapper scripts. Do not construct commit
-messages or PR bodies by hand — the wrappers resolve the correct
-`Co-Authored-By` identity from `vergil.toml`, and the git hooks validate
-what they produce.
+messages or PR bodies by hand — the wrappers build standards-compliant
+conventional commits and PR metadata, and the git hooks validate what
+they produce.
 
 ### Committing
 
@@ -293,11 +293,10 @@ vrg-commit \
 ### Reporting a branch ready
 
 Agents do not open, merge, or finalize pull requests. Work finishes by
-pushing the branch and recording the PR metadata for the human submit
-step:
+recording the PR metadata for the human submit step; `report-ready`
+pushes the branch itself, so there is no separate push:
 
 ```bash
-vrg-git push -u origin feature/<N>-<slug>
 vrg-pr-workflow report-ready \
   --issue N --title TEXT --summary TEXT --notes TEXT \
   [--linkage KEYWORD]
