@@ -28,16 +28,21 @@ integration-tests = false
 
 [container]
 env-prefixes = []
-system-packages = []
+# Node and npm for the alphaTab renderer. The Ubuntu 24.04 base images carry
+# their own Node under /opt/vergil/ for Vergil's tools only, with no default
+# `node` or `npm` on PATH, so the repo installs both from apt: npm for the
+# build-command below, node for melete-render at runtime (melete#265).
+system-packages = ["nodejs", "npm"]
 # Bake the alphaTab renderer's dependency into the image. The install must land
 # OUTSIDE /workspace (the runtime bind-mount masks anything under it), so this is
-# a GLOBAL install; the tooling exposes the npm global root on NODE_PATH, which
-# CommonJS require() honours (melete-render is CommonJS for this reason). The
-# version is pinned here so a bump edits vergil.toml (already cache-hashed);
-# build-cache-files additionally declares the lockfile so a resolved-tree change
-# rebuilds the image. Needs vergil-tooling >= 2.1.191 (the NODE_PATH fix, #2781).
-# Node itself is already in the base image. See melete#85, epic vergil #291.
-build-command = "npm install -g @coderline/alphatab@1.8.4"
+# a GLOBAL install; the tooling exposes /usr/lib/node_modules on NODE_PATH, which
+# CommonJS require() honours (melete-render is CommonJS for this reason). Ubuntu's
+# npm defaults its global prefix to /usr/local, so `--prefix /usr` puts the
+# library where NODE_PATH points. The version is pinned here so a bump edits
+# vergil.toml (already cache-hashed); build-cache-files additionally declares the
+# lockfile so a resolved-tree change rebuilds the image. Needs vergil-tooling
+# >= 2.1.191 (the NODE_PATH fix, #2781). See melete#85, epic vergil #291.
+build-command = "npm install -g --prefix /usr @coderline/alphatab@1.8.4"
 build-cache-files = ["melete-render/package-lock.json"]
 
 [publish]

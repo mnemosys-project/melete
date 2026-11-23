@@ -31,7 +31,8 @@ authoritative specification.
 
 The renderer's toolchain is Node with alphaTab, not a Python package. The
 dev and CI container bakes it in — `@coderline/alphatab` installed globally
-at image-build time, on top of the Node already in the base image — so
+at image-build time, on top of Node and npm from the apt packages in
+`vergil.toml`'s `[container].system-packages` — so
 nothing is required there. A host install instead needs Node on `PATH` and
 the `melete-render/` dependencies present (`npm install` in that
 directory). Melete itself declares no runtime Python dependency.
