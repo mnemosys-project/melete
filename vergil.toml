@@ -42,12 +42,15 @@ system-packages = []
 # OUTSIDE /workspace (the runtime bind-mount masks anything under it), so this is
 # a GLOBAL install; the tooling exposes /usr/lib/node_modules on NODE_PATH, which
 # CommonJS require() honours (melete-render is CommonJS for this reason). Ubuntu's
-# npm defaults its global prefix to /usr/local, so `--prefix /usr` puts the
-# library where NODE_PATH points. The version is pinned here so a bump edits
+# npm defaults its global prefix to /usr/local, so the build-command sets the
+# global prefix to /usr in npm's global config before installing. A one-off
+# `--prefix` would not do: CI's build-command action sets NODE_PATH from
+# `npm root -g` afterwards, which must also resolve to /usr/lib/node_modules.
+# The version is pinned here so a bump edits
 # vergil.toml (already cache-hashed); build-cache-files additionally declares the
 # lockfile so a resolved-tree change rebuilds the image. Needs vergil-tooling
 # >= 2.1.191 (the NODE_PATH fix, #2781). See melete#85, epic vergil #291.
-build-command = "export DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC && apt-get update && apt-get install -y --no-install-recommends nodejs npm && npm install -g --prefix /usr @coderline/alphatab@1.8.4"
+build-command = "export DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC && apt-get update && apt-get install -y --no-install-recommends nodejs npm && npm config set --global prefix /usr && npm install -g @coderline/alphatab@1.8.4"
 build-cache-files = ["melete-render/package-lock.json"]
 
 [publish]
