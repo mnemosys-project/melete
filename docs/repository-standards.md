@@ -180,20 +180,25 @@ Two things that look like post-merge workflows are not:
 **Melete has no runtime Python dependency.** The renderer's dependency
 lives outside Python entirely: melete emits alphaTex, and the vendored
 `melete-render/` Node tool renders it to a Guitar Pro `.gp` through
-alphaTab. Node itself is in the container's base image; alphaTab is added
-on top.
+alphaTab. The Ubuntu 24.04 base images carry no `node` or `npm` for a
+repository's own use, so the container's build-command installs Node and
+npm from apt and then adds alphaTab on top.
 
 Where the dependency comes from:
 
 | Context            | Source                                              |
 | ------------------ | --------------------------------------------------- |
-| Dev / CI container | `[container].build-command = "npm install -g @coderline/alphatab@1.8.4"` in `vergil.toml` |
+| Dev / CI container | `[container].build-command` in `vergil.toml`: `apt-get install nodejs npm`, then `npm install -g @coderline/alphatab@1.8.4` |
 | Host               | Node on `PATH`, plus `melete-render/`'s dependencies (`npm install` in that directory) |
 
 The container bakes alphaTab in at **image-build time** rather than
 installing it per run. The install must land **outside `/workspace`** — the
 runtime bind-mount masks anything under it — so it is a *global* npm
-install, and the tooling exposes the npm global root on `NODE_PATH`, which
+install. The build-command first sets npm's global prefix to `/usr`
+(Ubuntu's npm defaults it to `/usr/local`), so the global root is
+`/usr/lib/node_modules` both where the local tooling points `NODE_PATH` and
+where CI's build-command step reads it from `npm root -g`. The tooling
+exposes that global root on `NODE_PATH`, which
 CommonJS `require()` honours (`melete-render` is CommonJS for exactly this
 reason). The version is pinned in `vergil.toml` so a bump is a tracked
 config edit, and `build-cache-files` declares
