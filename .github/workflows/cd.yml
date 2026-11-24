@@ -20,3 +20,7 @@ jobs:
     with:
       language: python
       container-tag: "3.14"
+    # By name, not inherit: the reusable workflow is in another org.
+    secrets:
+      APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
